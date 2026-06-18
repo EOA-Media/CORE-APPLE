@@ -214,7 +214,7 @@ export function PlanPage() {
   }, [firebaseUser, isGuest, currentPlan.id, userDoc?.currentPlanStartedAt, userDoc?.currentPlanEndsAt])
 
   // Build a fallback weekly schedule from plan + today
-  const fallbackWeekly = useMemo(() => {
+  const fallbackWeekly = useMemo<ScheduledWorkout[]>(() => {
     const weekStart = startOfWeek(now, { weekStartsOn: 1 })
     return Array.from({ length: 7 }, (_, i) => {
       const date = new Date(weekStart)

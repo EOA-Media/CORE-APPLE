@@ -24,28 +24,6 @@ interface RecommendedPlan {
   reason: string
 }
 
-function getRecommendedPlan(goal: Goal, location: Location, level: Level, days: Days): RecommendedPlan {
-  if (goal === "General Fitness") {
-    return { name: "General Fitness", daysPerWeek: days, estimatedMinutes: 40, reason: "Balanced program covering strength, conditioning, and mobility" }
-  }
-  if (level === "Beginner" && location === "Home") {
-    return { name: "Home Bodyweight", daysPerWeek: Math.min(days, 4), estimatedMinutes: 30, reason: "No equipment needed — build a strong foundation at home" }
-  }
-  if (level === "Beginner" && location === "Gym") {
-    return { name: "Beginner Full Body", daysPerWeek: Math.min(days, 3), estimatedMinutes: 45, reason: "Full body sessions to build strength and learn proper form" }
-  }
-  if (level === "Intermediate" && location === "Gym" && days <= 4) {
-    return { name: "Upper Lower", daysPerWeek: 4, estimatedMinutes: 50, reason: "Efficient split hitting each muscle group twice per week" }
-  }
-  if ((level === "Intermediate" || level === "Advanced") && location === "Gym" && days >= 5) {
-    return { name: "Push Pull Legs", daysPerWeek: days, estimatedMinutes: 55, reason: "High-volume split for maximum muscle growth and recovery" }
-  }
-  if (level === "Advanced" && location === "Gym") {
-    return { name: "Push Pull Legs", daysPerWeek: Math.max(days, 5), estimatedMinutes: 55, reason: "Advanced volume and intensity for experienced lifters" }
-  }
-  return { name: "Upper Lower", daysPerWeek: 4, estimatedMinutes: 50, reason: "Balanced split for your training level" }
-}
-
 function OptionButton({ selected, children, onClick }: { selected: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
     <button

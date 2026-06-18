@@ -28,7 +28,7 @@ export function useWorkoutSession(exercises: Exercise[]) {
   const todayDate = useRef(getTodayString())
 
   const [exerciseStates, setExerciseStates] = useState<ExerciseState[]>(
-    exercises.map((ex) => ({
+    exercises.map(() => ({
       completed: false,
       expanded: false,
       weightUsed: 0,
@@ -74,14 +74,14 @@ export function useWorkoutSession(exercises: Exercise[]) {
     setExerciseStates((prev) => {
       const next = [...prev]
       const toggled = !next[index].completed
-      const startedAtSecond = toggled ? (next[index].startedAtSecond ?? elapsedSeconds) : null
+      const exerciseStartedAtSecond = next[index].startedAtSecond ?? elapsedSeconds
       next[index] = {
         ...next[index],
         completed: toggled,
         setsCompleted: toggled ? exercises[index].sets : 0,
         expanded: toggled ? false : next[index].expanded,
-        startedAtSecond,
-        elapsedSeconds: toggled ? Math.max(1, elapsedSeconds - startedAtSecond) : 0,
+        startedAtSecond: toggled ? exerciseStartedAtSecond : null,
+        elapsedSeconds: toggled ? Math.max(1, elapsedSeconds - exerciseStartedAtSecond) : 0,
       }
       return next
     })

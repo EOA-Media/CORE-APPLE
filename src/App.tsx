@@ -18,7 +18,7 @@ class AppErrorBoundary extends Component<
   { children: ReactNode },
   { error: Error | null }
 > {
-  state = { error: null }
+  state: Readonly<{ error: Error | null }> = { error: null }
 
   static getDerivedStateFromError(error: Error) {
     return { error }

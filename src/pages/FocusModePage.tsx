@@ -122,10 +122,11 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
   useEffect(() => {
     if (isGuest || !firebaseUser) return
 
+    const userId = firebaseUser.uid
     let cancelled = false
     async function loadSavedWeights() {
       try {
-        const exerciseData = await getAllExerciseData(firebaseUser.uid)
+        const exerciseData = await getAllExerciseData(userId)
         if (cancelled) return
 
         workout.exercises.forEach((exercise, index) => {
