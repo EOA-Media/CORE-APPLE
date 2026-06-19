@@ -67,6 +67,23 @@ function AppLoading() {
 
 // ─── Guest save-progress banner ───────────────────────────────────────────────
 
+function StartupError({ message }: { message: string }) {
+  return (
+    <div className="app-bg flex h-svh items-center justify-center px-6">
+      <div className="glass max-w-[360px] rounded-3xl p-6 text-center">
+        <p className="text-sm font-semibold text-foreground">CORE couldn't start.</p>
+        <p className="mt-2 text-xs text-muted-foreground">{message}</p>
+        <button
+          onClick={() => window.location.reload()}
+          className="glass-subtle mt-5 rounded-2xl px-5 py-3 text-sm font-semibold text-foreground"
+        >
+          Try Again
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function GuestBanner() {
   return (
     <div className="flex items-center justify-between bg-[var(--gold-glow-soft)] px-5 py-2.5 text-xs">
@@ -112,13 +129,17 @@ function AppLayout() {
 // ─── Root with auth gating ────────────────────────────────────────────────────
 
 function RootRouter() {
-  const { mode } = useAuth()
+  const { mode, startupError } = useAuth()
 
   if (mode === "loading") {
     return <AppLoading />
   }
 
-  if (mode === "unauthenticated") {
+  if (mode === "error") {
+    return <StartupError message={startupError ?? "Startup failed. Please try again."} />
+  }
+
+  if (mode === "unauthenticated" || mode === "onboarding") {
     return (
       <Routes>
         <Route path="/onboarding" element={<OnboardingPage />} />
