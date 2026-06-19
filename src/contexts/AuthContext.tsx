@@ -6,9 +6,9 @@ import { signOutUser } from "@/services/authService"
 import { getDefaultWorkoutReminderSettings, saveWorkoutReminderSettings } from "@/services/pushNotificationService"
 import type { User } from "@/data/models"
 
-type AuthMode = "loading" | "authenticated" | "guest" | "unauthenticated" | "onboarding" | "error"
+type AuthMode = "loading" | "authenticated" | "guest" | "unauthenticated" | "onboarding"
 
-const AUTH_STARTUP_TIMEOUT_MS = 10000
+const AUTH_STARTUP_TIMEOUT_MS = 5000
 const PROFILE_LOAD_TIMEOUT_MS = 10000
 
 interface AuthContextValue {
@@ -32,10 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isGuestRef = useRef(false)
 
-  function setStartupFailure(message: string, error?: unknown) {
-    console.error("[Auth] Startup failed:", message, error)
+  function finishStartupUnauthenticated(message: string, error?: unknown) {
+    console.warn("[Auth] Continuing without Firebase auth:", message, error)
+    setFirebaseUser(null)
+    setUserDoc(null)
     setStartupError(message)
-    setMode("error")
+    setMode("unauthenticated")
   }
 
   function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -80,8 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setMode("authenticated")
     } catch (error) {
-      setUserDoc(null)
-      setStartupFailure("We couldn't load your CORE profile. Check your connection and try again.", error)
+      finishStartupUnauthenticated("We couldn't load your CORE profile. Showing login/signup.", error)
     }
   }
 
@@ -115,9 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     console.log("[Auth] Starting Firebase auth listener")
+    console.log("[Auth] firebaseConfigStatus.missingKeys:", firebaseConfigStatus.missingKeys)
 
     if (!firebaseConfigStatus.isComplete) {
-      setStartupFailure(
+      finishStartupUnauthenticated(
         `Firebase is missing required configuration: ${firebaseConfigStatus.missingKeys.join(", ")}`
       )
       return
@@ -127,9 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const startupTimeout = window.setTimeout(() => {
       if (settled) return
       settled = true
-      setFirebaseUser(null)
-      setUserDoc(null)
-      setStartupFailure("Firebase Auth did not finish starting. Check the TestFlight Firebase configuration.")
+      finishStartupUnauthenticated("Firebase Auth did not finish starting within 5 seconds.")
     }, AUTH_STARTUP_TIMEOUT_MS)
 
     const unsub = onAuthStateChanged(
@@ -162,9 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           settled = true
           window.clearTimeout(startupTimeout)
         }
-        setFirebaseUser(null)
-        setUserDoc(null)
-        setStartupFailure("Firebase Auth failed to start. Check the app configuration and network.", error)
+        finishStartupUnauthenticated("Firebase Auth failed to start. Showing login/signup.", error)
       }
     )
 

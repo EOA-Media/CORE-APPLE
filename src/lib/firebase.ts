@@ -23,6 +23,8 @@ export const firebaseConfigStatus = {
   missingKeys: missingFirebaseConfig,
 }
 
+console.log("[Firebase] firebaseConfigStatus.missingKeys:", firebaseConfigStatus.missingKeys)
+
 if (!firebaseConfigStatus.isComplete) {
   console.error("[Firebase] Missing required configuration:", firebaseConfigStatus.missingKeys)
 } else {
