@@ -9,6 +9,7 @@ import { activatePlan } from "@/services/planService"
 import { ALL_CORE_PLANS, getCorePlanForOnboarding, getPlanById, getProgramReason, buildWorkoutNameMap } from "@/data/planSeedData"
 import { useAuth } from "@/contexts/AuthContext"
 import { CoreLogo } from "@/components/core/CoreLogo"
+import { firebaseNetworkDiagnosticsConfig } from "@/lib/firebase"
 
 type Goal = "Build Muscle" | "Lose Weight" | "Stay Consistent" | "General Fitness"
 type Location = "Gym" | "Home"
@@ -16,6 +17,8 @@ type Level = "Beginner" | "Intermediate" | "Advanced"
 type Days = 2 | 3 | 4 | 5 | 6
 type AuthTab = "signup" | "signin"
 const ACCOUNT_SETUP_TIMEOUT_MS = 45000
+const FIREBASE_DIAGNOSTIC_TIMEOUT_MS = 30000
+const FIREBASE_DIAGNOSTIC_PROJECT_ID = "core-6a386"
 
 interface RecommendedPlan {
   id: string
@@ -27,6 +30,12 @@ interface RecommendedPlan {
 
 interface FirestoreSetupError extends Error {
   code: string
+}
+
+interface FirebaseDiagnosticResult {
+  label: string
+  status: string
+  body: string
 }
 
 function toDisplayedError(error: unknown, fallbackCode: string, fallbackMessage: string) {
@@ -52,6 +61,46 @@ function withOnboardingTimeout<T>(promise: Promise<T>, label: string, code: stri
       .then(resolve, reject)
       .finally(() => window.clearTimeout(timeout))
   })
+}
+
+function formatDiagnosticError(error: unknown) {
+  if (error instanceof Error) {
+    return error.stack || error.message
+  }
+  return String(error)
+}
+
+async function fetchFirebaseDiagnostic(
+  label: string,
+  url: string,
+  init?: RequestInit
+): Promise<FirebaseDiagnosticResult> {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), FIREBASE_DIAGNOSTIC_TIMEOUT_MS)
+
+  try {
+    console.log(`[FirebaseDiagnostics] ${label} fetch starting`)
+    const response = await fetch(url, { ...init, signal: controller.signal })
+    const body = await response.text()
+    console.log(`[FirebaseDiagnostics] ${label} fetch finished:`, { status: response.status, body })
+    return {
+      label,
+      status: `${response.status} ${response.statusText}`,
+      body: body || "(empty response)",
+    }
+  } catch (error) {
+    const body = error instanceof DOMException && error.name === "AbortError"
+      ? `Fetch timed out after ${FIREBASE_DIAGNOSTIC_TIMEOUT_MS / 1000} seconds`
+      : formatDiagnosticError(error)
+    console.error(`[FirebaseDiagnostics] ${label} fetch failed:`, error)
+    return {
+      label,
+      status: "fetch error",
+      body,
+    }
+  } finally {
+    window.clearTimeout(timeout)
+  }
 }
 
 function OptionButton({ selected, children, onClick }: { selected: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -111,6 +160,8 @@ export function OnboardingPage() {
   const [authPassword, setAuthPassword] = useState("")
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState("")
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false)
+  const [diagnosticResults, setDiagnosticResults] = useState<FirebaseDiagnosticResult[]>([])
 
   const recommendedPlan = goal && location && level && days
     ? getRecommendedCorePlan(goal, location, level, days)
@@ -285,6 +336,47 @@ export function OnboardingPage() {
       }
     } finally {
       setAuthLoading(false)
+    }
+  }
+
+  async function runFirebaseDiagnostics() {
+    setDiagnosticLoading(true)
+    setDiagnosticResults([])
+    const apiKey = firebaseNetworkDiagnosticsConfig.apiKey
+
+    try {
+      const results: FirebaseDiagnosticResult[] = []
+
+      if (!apiKey) {
+        results.push({
+          label: "Identity Toolkit signInWithPassword",
+          status: "missing api key",
+          body: "VITE_FIREBASE_API_KEY/FIREBASE_API_KEY is not present in the built app.",
+        })
+      } else {
+        results.push(await fetchFirebaseDiagnostic(
+          "Identity Toolkit signInWithPassword",
+          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: "diagnostic@example.com",
+              password: "diagnostic-password",
+              returnSecureToken: true,
+            }),
+          }
+        ))
+      }
+
+      results.push(await fetchFirebaseDiagnostic(
+        "Firestore documents list",
+        `https://firestore.googleapis.com/v1/projects/${FIREBASE_DIAGNOSTIC_PROJECT_ID}/databases/(default)/documents`
+      ))
+
+      setDiagnosticResults(results)
+    } finally {
+      setDiagnosticLoading(false)
     }
   }
 
@@ -631,6 +723,32 @@ export function OnboardingPage() {
               <GoogleIcon />
               Continue with Google
             </button>
+
+            <div className="space-y-3">
+              <button
+                onClick={runFirebaseDiagnostics}
+                disabled={diagnosticLoading}
+                className="glass-subtle flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-xs font-semibold text-muted-foreground transition-all duration-250 disabled:opacity-60 active:scale-[0.97]"
+              >
+                {diagnosticLoading && <Loader2 className="size-3.5 animate-spin" />}
+                Run Firebase Network Test
+              </button>
+
+              {diagnosticResults.length > 0 && (
+                <div className="space-y-2 rounded-2xl border border-border/60 bg-secondary/30 p-3">
+                  {diagnosticResults.map((result) => (
+                    <div key={result.label} className="space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        {result.label}: {result.status}
+                      </p>
+                      <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-muted-foreground">
+                        {result.body}
+                      </pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
           </div>
         )}

@@ -15,6 +15,11 @@ const firebaseConfig = {
   appId: getFirebaseEnv("VITE_FIREBASE_APP_ID", "FIREBASE_APP_ID"),
 }
 
+export const firebaseNetworkDiagnosticsConfig = {
+  apiKey: firebaseConfig.apiKey ?? "",
+  projectId: firebaseConfig.projectId ?? "",
+}
+
 export const firebaseEnvPresence = {
   VITE_FIREBASE_API_KEY: !!env.VITE_FIREBASE_API_KEY,
   VITE_FIREBASE_AUTH_DOMAIN: !!env.VITE_FIREBASE_AUTH_DOMAIN,
