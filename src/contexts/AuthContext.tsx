@@ -19,7 +19,7 @@ interface AuthContextValue {
   isGuest: boolean
   setGuestMode: () => void
   signOut: () => Promise<void>
-  refreshUserDoc: () => Promise<void>
+  refreshUserDoc: (authUser?: FirebaseUser | CoreAuthUser | null) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -117,10 +117,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function refreshUserDoc() {
-    if (firebaseUser) {
-      console.log("[Auth] Refreshing Firestore profile:", firebaseUser.uid)
-      await loadUserDoc(firebaseUser)
+  async function refreshUserDoc(authUser: FirebaseUser | CoreAuthUser | null = firebaseUser) {
+    if (authUser) {
+      console.log("[Auth] Refreshing Firestore profile:", authUser.uid)
+      setFirebaseUser(authUser)
+      isGuestRef.current = false
+      await loadUserDoc(authUser)
     }
   }
 

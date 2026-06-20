@@ -22,6 +22,7 @@ import { getAppDate, getTodayString } from "@/lib/appDate"
 import type { WorkoutPlan } from "@/data/models"
 
 const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+const PLAN_PAGE_LOAD_TIMEOUT_MS = 15000
 
 interface PlanOption {
   id: string
@@ -88,6 +89,29 @@ function daysBetween(startDate: string, endDate: string): number {
   return Math.floor((end.getTime() - start.getTime()) / dayMs)
 }
 
+function getPlanPageErrorMessage(error: unknown, fallbackCode: string, fallbackMessage: string) {
+  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : fallbackCode
+  const message = error instanceof Error ? error.message : fallbackMessage
+  return `${code}: ${message}`
+}
+
+function withPlanTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      reject(Object.assign(
+        new Error(`${label} timed out after ${PLAN_PAGE_LOAD_TIMEOUT_MS / 1000} seconds`),
+        { code: "firestore/plan-page-timeout" }
+      ))
+    }, PLAN_PAGE_LOAD_TIMEOUT_MS)
+
+    promise
+      .then(resolve, reject)
+      .finally(() => window.clearTimeout(timeout))
+  })
+}
+
 export function PlanPage() {
   const navigate = useNavigate()
   const { firebaseUser, isGuest, userDoc, refreshUserDoc } = useAuth()
@@ -103,6 +127,7 @@ export function PlanPage() {
   const [remotePlan, setRemotePlan] = useState<WorkoutPlan | null>(null)
   const [savedCustomPlans] = useState<WorkoutPlan[]>([])
   const [scheduledPlanBounds, setScheduledPlanBounds] = useState<{ start: string; end: string } | null>(null)
+  const [planLoadError, setPlanLoadError] = useState("")
 
   const now = getAppDate()
   const today = getTodayString()
@@ -168,13 +193,16 @@ export function PlanPage() {
     }
 
     let cancelled = false
-    getPlan(planId)
+    withPlanTimeout(getPlan(planId), "Custom plan load")
       .then((plan) => {
         if (!cancelled) setRemotePlan(plan)
       })
       .catch((err) => {
         console.error("[PlanPage] failed to load custom plan:", err)
-        if (!cancelled) setRemotePlan(null)
+        if (!cancelled) {
+          setRemotePlan(null)
+          setPlanLoadError(getPlanPageErrorMessage(err, "firestore/custom-plan-load-failed", "Custom plan load failed"))
+        }
       })
 
     return () => { cancelled = true }
@@ -191,7 +219,10 @@ export function PlanPage() {
     }
 
     let cancelled = false
-    getScheduledWorkouts(firebaseUser.uid, "1900-01-01", "9999-12-31")
+    withPlanTimeout(
+      getScheduledWorkouts(firebaseUser.uid, "1900-01-01", "9999-12-31"),
+      "Plan date bounds load"
+    )
       .then((scheduled) => {
         if (cancelled) return
         const currentPlanDays = scheduled
@@ -207,7 +238,10 @@ export function PlanPage() {
       })
       .catch((err) => {
         console.error("[PlanPage] failed to load plan date bounds:", err)
-        if (!cancelled) setScheduledPlanBounds(null)
+        if (!cancelled) {
+          setScheduledPlanBounds(null)
+          setPlanLoadError(getPlanPageErrorMessage(err, "firestore/plan-bounds-load-failed", "Plan date bounds load failed"))
+        }
       })
 
     return () => { cancelled = true }
@@ -251,25 +285,35 @@ export function PlanPage() {
 
   // Load live Firestore calendar data
   useEffect(() => {
-    if (isGuest || !firebaseUser) return
+    if (isGuest || !firebaseUser) {
+      setLoadingData(false)
+      setPlanLoadError("")
+      return
+    }
 
     let cancelled = false
     async function load() {
       setLoadingData(true)
+      setPlanLoadError("")
+      const uid = firebaseUser!.uid
       try {
-        await markMissedWorkouts(firebaseUser!.uid)
-        await syncUserStatsFromSchedule(firebaseUser!.uid)
-        await syncUserStreakFromSchedule(firebaseUser!.uid)
+        console.log("[PlanPage] loading Firestore calendar data:", { uid })
+        await withPlanTimeout(markMissedWorkouts(uid), "Mark missed workouts")
+        await withPlanTimeout(syncUserStatsFromSchedule(uid), "Sync user stats")
+        await withPlanTimeout(syncUserStreakFromSchedule(uid), "Sync user streak")
 
         const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
         const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
         const monthStart = format(selectedMonth, "yyyy-MM-dd")
         const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
 
-        const [weekly, monthly] = await Promise.all([
-          getScheduledWorkouts(firebaseUser!.uid, weekStart, weekEnd),
-          getScheduledWorkouts(firebaseUser!.uid, monthStart, monthEnd),
-        ])
+        const [weekly, monthly] = await withPlanTimeout(
+          Promise.all([
+            getScheduledWorkouts(uid, weekStart, weekEnd),
+            getScheduledWorkouts(uid, monthStart, monthEnd),
+          ]),
+          "Workout calendar load"
+        )
         if (!cancelled) {
           const normalizedWeekly = normalizePastScheduled(weekly, today).filter(isInsideActiveProgram)
           const normalizedMonthly = normalizePastScheduled(monthly, today).filter(isInsideActiveProgram)
@@ -277,8 +321,13 @@ export function PlanPage() {
           setLiveMonthly(normalizedMonthly.length > 0 ? normalizedMonthly : null)
           console.log("[PlanPage] loaded — currentPlanId:", userDoc?.currentPlanId, "weekly:", weekly.length, "monthly:", monthly.length)
         }
-      } catch {
-        // fallback to local
+      } catch (error) {
+        console.error("[PlanPage] Firestore calendar load failed:", { uid, error })
+        if (!cancelled) {
+          setLiveWeekly(null)
+          setLiveMonthly(null)
+          setPlanLoadError(getPlanPageErrorMessage(error, "firestore/calendar-load-failed", "Workout plan loading failed"))
+        }
       } finally {
         if (!cancelled) setLoadingData(false)
       }
@@ -305,25 +354,31 @@ export function PlanPage() {
 
     setSwitchingPlan(true)
     setShowPlanList(false)
+    setPlanLoadError("")
     try {
-      const savedWorkouts = plan.type === "custom" ? await getWorkoutsForPlan(plan.id) : []
+      const savedWorkouts = plan.type === "custom"
+        ? await withPlanTimeout(getWorkoutsForPlan(plan.id), "Custom plan workouts load")
+        : []
       const workoutNameMap = plan.type === "custom"
         ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout.name]))
         : buildWorkoutNameMap(plan)
       console.log("[PlanPage] switching to plan:", plan.id, plan.name)
-      await activatePlan(firebaseUser.uid, plan, workoutNameMap)
+      await withPlanTimeout(activatePlan(firebaseUser.uid, plan, workoutNameMap), "Plan activation")
       // Refresh user doc so currentPlanId propagates to all components
-      await refreshUserDoc()
+      await refreshUserDoc(firebaseUser)
       console.log("[PlanPage] plan activated and userDoc refreshed")
       // Reload calendar data after plan switch
       const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
       const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
       const monthStart = format(selectedMonth, "yyyy-MM-dd")
       const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
-      const [weekly, monthly] = await Promise.all([
-        getScheduledWorkouts(firebaseUser.uid, weekStart, weekEnd),
-        getScheduledWorkouts(firebaseUser.uid, monthStart, monthEnd),
-      ])
+      const [weekly, monthly] = await withPlanTimeout(
+        Promise.all([
+          getScheduledWorkouts(firebaseUser.uid, weekStart, weekEnd),
+          getScheduledWorkouts(firebaseUser.uid, monthStart, monthEnd),
+        ]),
+        "Workout calendar reload"
+      )
       const normalizedWeekly = normalizePastScheduled(weekly, today)
       const normalizedMonthly = normalizePastScheduled(monthly, today)
       setLiveWeekly(normalizedWeekly.length > 0 ? normalizedWeekly : null)
@@ -331,6 +386,7 @@ export function PlanPage() {
       console.log("[PlanPage] calendar reloaded — weekly:", weekly.length, "monthly:", monthly.length)
     } catch (err) {
       console.error("[PlanPage] plan switch failed:", err)
+      setPlanLoadError(getPlanPageErrorMessage(err, "firestore/plan-switch-failed", "Plan switch failed"))
     } finally {
       setSwitchingPlan(false)
     }
@@ -394,6 +450,12 @@ export function PlanPage() {
           Week
         </button>
       </div>
+
+      {planLoadError && (
+        <div className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3">
+          <p className="text-xs text-destructive">{planLoadError}</p>
+        </div>
+      )}
 
       {/* Week View */}
       {view === "week" && (

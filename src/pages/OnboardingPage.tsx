@@ -258,10 +258,16 @@ export function OnboardingPage() {
         },
       })
       await activatePlan(firebaseUser.uid, finalPlan, buildWorkoutNameMap(finalPlan))
-      await refreshUserDoc()
+      await refreshUserDoc(firebaseUser)
       navigate("/plan")
-    } catch {
-      setAuthError("Plan change failed. Please try again.")
+    } catch (error) {
+      console.error("[Onboarding] Plan change failed:", {
+        uid: firebaseUser.uid,
+        planId: finalPlan.id,
+        error: getDetailedError(error),
+        rawError: error,
+      })
+      setAuthError(`Plan change failed: ${toDisplayedError(error, "firestore/plan-change-failed", "Plan change failed")}`)
     } finally {
       setAuthLoading(false)
     }
@@ -275,6 +281,7 @@ export function OnboardingPage() {
     const finalPlanId = selectedPlanId ?? recommendedPlan.id
     const finalPlan = finalPlanId === "custom" ? null : getPlanById(finalPlanId)
     console.log("[Onboarding] Auth user created; starting non-blocking Firestore setup:", { uid: fbUser.uid })
+    setAuthLoading(false)
     try {
       await withOnboardingTimeout(
         createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
@@ -309,7 +316,7 @@ export function OnboardingPage() {
         )
       }
 
-      await refreshUserDoc()
+      await refreshUserDoc(fbUser)
       console.log("[Onboarding] Firestore profile setup succeeded:", { uid: fbUser.uid })
     } catch (error) {
       console.error("[Onboarding] Firestore setup failed after Auth success; continuing signup:", {
@@ -319,7 +326,10 @@ export function OnboardingPage() {
         rawError: error,
       })
       setAuthError(`Account created. Firestore setup failed: ${toDisplayedError(error, "firestore/setup-failed", "Firestore profile setup failed")}`)
+      setAuthLoading(false)
+      return
     }
+    setAuthLoading(false)
     navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
   }
 
@@ -333,8 +343,8 @@ export function OnboardingPage() {
         const fbUser = await signUpWithEmail(authEmail, authPassword, authName.trim())
         await finishWithAccount(fbUser)
       } else {
-        await signInWithEmail(authEmail, authPassword)
-        await refreshUserDoc()
+        const fbUser = await signInWithEmail(authEmail, authPassword)
+        await refreshUserDoc(fbUser)
         navigate("/")
       }
     } catch (err: unknown) {
