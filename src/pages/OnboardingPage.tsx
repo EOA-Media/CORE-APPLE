@@ -15,6 +15,7 @@ type Location = "Gym" | "Home"
 type Level = "Beginner" | "Intermediate" | "Advanced"
 type Days = 2 | 3 | 4 | 5 | 6
 type AuthTab = "signup" | "signin"
+const ACCOUNT_SETUP_TIMEOUT_MS = 45000
 
 interface RecommendedPlan {
   id: string
@@ -34,6 +35,23 @@ function toDisplayedError(error: unknown, fallbackCode: string, fallbackMessage:
     : fallbackCode
   const message = error instanceof Error ? error.message : fallbackMessage
   return `${code}: ${message}`
+}
+
+function withOnboardingTimeout<T>(promise: Promise<T>, label: string, code: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      const timeoutError = Object.assign(
+        new Error(`${label} timed out after ${ACCOUNT_SETUP_TIMEOUT_MS / 1000} seconds`),
+        { code }
+      )
+      console.error(`[Onboarding] ${label} timed out:`, timeoutError)
+      reject(timeoutError)
+    }, ACCOUNT_SETUP_TIMEOUT_MS)
+
+    promise
+      .then(resolve, reject)
+      .finally(() => window.clearTimeout(timeout))
+  })
 }
 
 function OptionButton({ selected, children, onClick }: { selected: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -188,24 +206,30 @@ export function OnboardingPage() {
     const finalPlan = finalPlanId === "custom" ? null : getPlanById(finalPlanId)
     try {
       console.log("[Onboarding] Firestore profile setup starting:", { uid: fbUser.uid })
-      await createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
-        goal,
-        location,
-        level,
-        daysPerWeek: days,
-        preferredTime: "Morning",
-        recommendedPlan: finalPlanId === "custom" ? "Custom Plan" : finalPlan?.name ?? recommendedPlan.name,
-      })
-      await initUserAchievements(fbUser.uid)
+      await withOnboardingTimeout(
+        (async () => {
+          await createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
+            goal,
+            location,
+            level,
+            daysPerWeek: days,
+            preferredTime: "Morning",
+            recommendedPlan: finalPlanId === "custom" ? "Custom Plan" : finalPlan?.name ?? recommendedPlan.name,
+          })
+          await initUserAchievements(fbUser.uid)
 
-      // Activate the recommended plan and generate scheduled workouts
-      if (finalPlan) {
-        const workoutNameMap = buildWorkoutNameMap(finalPlan)
-        await activatePlan(fbUser.uid, finalPlan, workoutNameMap)
-        await checkAndUnlockAchievements(fbUser.uid)
-      }
+          // Activate the recommended plan and generate scheduled workouts
+          if (finalPlan) {
+            const workoutNameMap = buildWorkoutNameMap(finalPlan)
+            await activatePlan(fbUser.uid, finalPlan, workoutNameMap)
+            await checkAndUnlockAchievements(fbUser.uid)
+          }
 
-      await refreshUserDoc()
+          await refreshUserDoc()
+        })(),
+        "Firestore profile setup",
+        "firestore/setup-timeout"
+      )
       console.log("[Onboarding] Firestore profile setup succeeded:", { uid: fbUser.uid })
     } catch (error) {
       console.error("[Onboarding] Firestore profile setup failed:", error)
@@ -224,7 +248,13 @@ export function OnboardingPage() {
     try {
       if (authTab === "signup") {
         if (!authName.trim()) { setAuthError("Display name is required"); setAuthLoading(false); return }
-        const taken = await isDisplayNameTaken(authName.trim())
+        console.log("[Onboarding] Display name availability check starting")
+        const taken = await withOnboardingTimeout(
+          isDisplayNameTaken(authName.trim()),
+          "Display name availability check",
+          "firestore/display-name-timeout"
+        )
+        console.log("[Onboarding] Display name availability check succeeded:", { taken })
         if (taken) { setAuthError("That username is already taken. Please choose a different one."); setAuthLoading(false); return }
         const fbUser = await signUpWithEmail(authEmail, authPassword, authName.trim())
         await finishWithAccount(fbUser)
