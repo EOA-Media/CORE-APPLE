@@ -9,7 +9,7 @@ workflows:
 
     environment:
       groups:
-        -Firebase
+        - Firebase
       node: 20
       xcode: latest
       ios_signing:
