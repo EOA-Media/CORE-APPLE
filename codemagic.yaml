@@ -20,6 +20,17 @@ workflows:
       - name: Install dependencies
         script: npm ci
 
+      - name: Check Firebase environment variables
+        script: |
+          echo "=== FIREBASE ENV CHECK ==="
+          echo "VITE_FIREBASE_API_KEY length: ${#VITE_FIREBASE_API_KEY}"
+          echo "FIREBASE_API_KEY length: ${#FIREBASE_API_KEY}"
+          echo "VITE_FIREBASE_PROJECT_ID: $VITE_FIREBASE_PROJECT_ID"
+          echo "FIREBASE_PROJECT_ID: $FIREBASE_PROJECT_ID"
+          echo "VITE_FIREBASE_APP_ID length: ${#VITE_FIREBASE_APP_ID}"
+          echo "FIREBASE_APP_ID length: ${#FIREBASE_APP_ID}"
+          echo "=== END FIREBASE ENV CHECK ==="
+
       - name: Build web app
         script: npm run build
 
