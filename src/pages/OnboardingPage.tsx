@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Dumbbell, Clock, Flame, Award, Users, Mail, Lock, User, AlertCircle, Loader2, Sparkles, SlidersHorizontal } from "lucide-react"
-import { signUpWithEmail, signInWithEmail, signInWithGoogle, type EmailAuthError } from "@/services/authService"
+import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/authService"
 import { createUserDocument, isDisplayNameTaken, updateUserDocument } from "@/services/userService"
 import { checkAndUnlockAchievements, initUserAchievements } from "@/services/achievementService"
 import { activatePlan } from "@/services/planService"
@@ -22,6 +22,18 @@ interface RecommendedPlan {
   daysPerWeek: number
   estimatedMinutes: number
   reason: string
+}
+
+interface FirestoreSetupError extends Error {
+  code: string
+}
+
+function toDisplayedError(error: unknown, fallbackCode: string, fallbackMessage: string) {
+  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : fallbackCode
+  const message = error instanceof Error ? error.message : fallbackMessage
+  return `${code}: ${message}`
 }
 
 function OptionButton({ selected, children, onClick }: { selected: boolean; children: React.ReactNode; onClick: () => void }) {
@@ -175,6 +187,7 @@ export function OnboardingPage() {
     const finalPlanId = selectedPlanId ?? recommendedPlan.id
     const finalPlan = finalPlanId === "custom" ? null : getPlanById(finalPlanId)
     try {
+      console.log("[Onboarding] Firestore profile setup starting:", { uid: fbUser.uid })
       await createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
         goal,
         location,
@@ -193,8 +206,13 @@ export function OnboardingPage() {
       }
 
       await refreshUserDoc()
-    } catch {
-      // If any step fails, still navigate — user can change plan later
+      console.log("[Onboarding] Firestore profile setup succeeded:", { uid: fbUser.uid })
+    } catch (error) {
+      console.error("[Onboarding] Firestore profile setup failed:", error)
+      throw Object.assign(
+        error instanceof Error ? error : new Error("Firestore profile setup failed"),
+        { code: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "firestore/setup-failed" }
+      ) as FirestoreSetupError
     }
     navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
   }
@@ -216,11 +234,9 @@ export function OnboardingPage() {
         navigate("/")
       }
     } catch (err: unknown) {
-      const authErr = err as Partial<EmailAuthError>
-      const code = typeof authErr.code === "string" ? authErr.code : "auth/unknown"
-      const message = err instanceof Error ? err.message : "Authentication failed"
       console.error("[Onboarding] Email authentication failed:", err)
-      setAuthError(`${code}: ${message}`)
+      const fallbackCode = authTab === "signup" ? "auth/signup-failed" : "auth/signin-failed"
+      setAuthError(toDisplayedError(err, fallbackCode, "Authentication failed"))
     } finally {
       setAuthLoading(false)
     }

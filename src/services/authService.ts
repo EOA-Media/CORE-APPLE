@@ -10,7 +10,7 @@ import {
 import { auth } from "@/lib/firebase"
 
 const googleProvider = new GoogleAuthProvider()
-const EMAIL_AUTH_TIMEOUT_MS = 15000
+const EMAIL_AUTH_TIMEOUT_MS = 45000
 
 export interface EmailAuthError extends Error {
   code: string
@@ -28,10 +28,12 @@ function toEmailAuthError(error: unknown, fallbackCode = "auth/unknown"): EmailA
 function withEmailAuthTimeout<T>(promise: Promise<T>, action: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timeout = window.setTimeout(() => {
-      reject(Object.assign(
+      const timeoutError = Object.assign(
         new Error(`${action} timed out after ${EMAIL_AUTH_TIMEOUT_MS / 1000} seconds`),
         { code: "auth/timeout" }
-      ))
+      )
+      console.error(`[AuthService] ${action} timed out:`, timeoutError)
+      reject(timeoutError)
     }, EMAIL_AUTH_TIMEOUT_MS)
 
     promise
@@ -45,11 +47,13 @@ export async function signUpWithEmail(
   password: string,
   displayName: string
 ): Promise<FirebaseUser> {
+  console.log("[AuthService] createUserWithEmailAndPassword starting")
   try {
     const credential = await withEmailAuthTimeout(
       createUserWithEmailAndPassword(auth, email, password),
       "createUserWithEmailAndPassword"
     )
+    console.log("[AuthService] createUserWithEmailAndPassword succeeded:", { uid: credential.user.uid })
     await withEmailAuthTimeout(updateProfile(credential.user, { displayName }), "updateProfile")
     return credential.user
   } catch (error) {
@@ -59,11 +63,13 @@ export async function signUpWithEmail(
 }
 
 export async function signInWithEmail(email: string, password: string): Promise<FirebaseUser> {
+  console.log("[AuthService] signInWithEmailAndPassword starting")
   try {
     const credential = await withEmailAuthTimeout(
       signInWithEmailAndPassword(auth, email, password),
       "signInWithEmailAndPassword"
     )
+    console.log("[AuthService] signInWithEmailAndPassword succeeded:", { uid: credential.user.uid })
     return credential.user
   } catch (error) {
     console.error("[AuthService] signInWithEmailAndPassword failed:", error)
