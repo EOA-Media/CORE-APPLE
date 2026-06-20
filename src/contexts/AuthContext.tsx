@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react"
-import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth"
+import { Capacitor } from "@capacitor/core"
+import { FirebaseAuthentication } from "@capacitor-firebase/authentication"
+import { onAuthStateChanged } from "firebase/auth"
 import { auth, firebaseConfigStatus } from "@/lib/firebase"
 import { getUserDocument } from "@/services/userService"
-import { signOutUser } from "@/services/authService"
+import { normalizeNativeUser, signOutUser, type CoreAuthUser } from "@/services/authService"
 import { getDefaultWorkoutReminderSettings, saveWorkoutReminderSettings } from "@/services/pushNotificationService"
 import type { User } from "@/data/models"
 
@@ -12,7 +14,7 @@ const AUTH_STARTUP_TIMEOUT_MS = 5000
 const PROFILE_LOAD_TIMEOUT_MS = 10000
 
 interface AuthContextValue {
-  firebaseUser: FirebaseUser | null
+  firebaseUser: CoreAuthUser | null
   userDoc: User | null
   mode: AuthMode
   startupError: string | null
@@ -25,7 +27,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null)
+  const [firebaseUser, setFirebaseUser] = useState<CoreAuthUser | null>(null)
   const [userDoc, setUserDoc] = useState<User | null>(null)
   const [mode, setMode] = useState<AuthMode>("loading")
   const [startupError, setStartupError] = useState<string | null>(null)
@@ -75,7 +77,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  async function loadUserDoc(fbUser: FirebaseUser) {
+  function isNativeAuthPlatform() {
+    return Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios"
+  }
+
+  async function loadUserDoc(fbUser: CoreAuthUser) {
     console.log("[Auth] Loading Firestore profile:", fbUser.uid)
     try {
       const doc = await withTimeout(
@@ -164,6 +170,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         `Firebase is missing required configuration: ${firebaseConfigStatus.missingKeys.join(", ")}`
       )
       return
+    }
+
+    if (isNativeAuthPlatform()) {
+      console.log("[Auth] Starting Capacitor Firebase native auth listener:", { platform: Capacitor.getPlatform() })
+      let cancelled = false
+      let settled = false
+      let listenerHandle: { remove: () => Promise<void> } | null = null
+      const startupTimeout = window.setTimeout(() => {
+        if (cancelled || settled) return
+        settled = true
+        finishStartupUnauthenticated("Native Firebase Auth did not finish starting within 5 seconds.")
+      }, AUTH_STARTUP_TIMEOUT_MS)
+
+      FirebaseAuthentication.getCurrentUser()
+        .then(({ user }) => {
+          if (cancelled || settled) return
+          settled = true
+          window.clearTimeout(startupTimeout)
+          const nativeUser = user ? normalizeNativeUser(user) : null
+          console.log("[Auth] Native Firebase current user loaded:", {
+            hasUser: !!nativeUser,
+            uid: nativeUser?.uid,
+          })
+          setFirebaseUser(nativeUser)
+          if (nativeUser) {
+            isGuestRef.current = false
+            void loadUserDoc(nativeUser)
+          } else {
+            setUserDoc(null)
+            setStartupError(null)
+            setMode("unauthenticated")
+          }
+        })
+        .catch((error) => {
+          if (cancelled || settled) return
+          settled = true
+          window.clearTimeout(startupTimeout)
+          finishStartupUnauthenticated("Native Firebase Auth failed to start. Showing login/signup.", error)
+        })
+
+      void FirebaseAuthentication.addListener("authStateChange", ({ user }) => {
+        if (cancelled) return
+        if (!settled) {
+          settled = true
+          window.clearTimeout(startupTimeout)
+        }
+        const nativeUser = user ? normalizeNativeUser(user) : null
+        console.log("[Auth] Native Firebase auth state changed:", {
+          hasUser: !!nativeUser,
+          uid: nativeUser?.uid,
+        })
+        setFirebaseUser(nativeUser)
+        if (nativeUser) {
+          isGuestRef.current = false
+          void loadUserDoc(nativeUser)
+        } else {
+          setUserDoc(null)
+          setStartupError(null)
+          if (!isGuestRef.current) {
+            setMode("unauthenticated")
+          }
+        }
+      }).then((handle) => {
+        listenerHandle = handle
+      })
+
+      return () => {
+        cancelled = true
+        window.clearTimeout(startupTimeout)
+        void listenerHandle?.remove()
+      }
     }
 
     let settled = false
