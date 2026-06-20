@@ -32,6 +32,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isGuestRef = useRef(false)
 
+  function getDetailedError(error: unknown) {
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        code: "code" in error ? error.code : undefined,
+        customData: "customData" in error ? error.customData : undefined,
+        cause: "cause" in error ? error.cause : undefined,
+      }
+    }
+
+    return {
+      message: String(error),
+    }
+  }
+
   function setStartupFailure(message: string, error?: unknown) {
     console.error("[Auth] Startup failed:", message, error)
     setStartupError(message)
@@ -88,7 +105,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setMode("authenticated")
     } catch (error) {
-      finishStartupUnauthenticated("We couldn't load your CORE profile. Showing login/signup.", error)
+      console.error("[Auth] Firestore profile load failed; keeping Firebase Auth session active:", {
+        uid: fbUser.uid,
+        error: getDetailedError(error),
+        rawError: error,
+      })
+      setFirebaseUser(fbUser)
+      setUserDoc(null)
+      setStartupError("We couldn't load your CORE profile, but your account is signed in.")
+      setMode("authenticated")
     }
   }
 

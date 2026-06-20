@@ -15,16 +15,46 @@ import { db } from "@/lib/firebase"
 import type { User, OnboardingAnswers } from "@/data/models"
 import { getRankFromDP } from "@/data/helpers"
 
+function getFirestoreErrorDetails(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: "code" in error ? error.code : undefined,
+      customData: "customData" in error ? error.customData : undefined,
+      cause: "cause" in error ? error.cause : undefined,
+    }
+  }
+
+  return {
+    message: String(error),
+  }
+}
+
+function logFirestoreFailure(operation: string, context: Record<string, unknown>, error: unknown) {
+  console.error(`[Firestore] ${operation} failed:`, {
+    context,
+    error: getFirestoreErrorDetails(error),
+    rawError: error,
+  })
+}
+
 // ─── Username availability ────────────────────────────────────────────────────
 
 export async function isDisplayNameTaken(displayName: string): Promise<boolean> {
-  const q = query(
-    collection(db, "users"),
-    where("displayNameLower", "==", displayName.toLowerCase().trim()),
-    limit(1)
-  )
-  const snap = await getDocs(q)
-  return !snap.empty
+  try {
+    const q = query(
+      collection(db, "users"),
+      where("displayNameLower", "==", displayName.toLowerCase().trim()),
+      limit(1)
+    )
+    const snap = await getDocs(q)
+    return !snap.empty
+  } catch (error) {
+    logFirestoreFailure("isDisplayNameTaken", { displayName }, error)
+    throw error
+  }
 }
 
 // ─── Create ───────────────────────────────────────────────────────────────────
@@ -72,7 +102,14 @@ export async function createUserProfile(
     updatedAt: serverTimestamp(),
   }
 
-  await setDoc(userRef, userData)
+  try {
+    console.log("[Firestore] createUserProfile starting:", { userId, email, displayName })
+    await setDoc(userRef, userData)
+    console.log("[Firestore] createUserProfile succeeded:", { userId })
+  } catch (error) {
+    logFirestoreFailure("createUserProfile", { userId, email, displayName }, error)
+    throw error
+  }
 }
 
 // Keep legacy name as an alias so OnboardingPage doesn't break
@@ -82,22 +119,32 @@ export const createUserDocument = createUserProfile
 
 export async function getUserDocument(userId: string): Promise<User | null> {
   const userRef = doc(db, "users", userId)
-  const snap = await getDoc(userRef)
-  if (!snap.exists()) return null
+  try {
+    console.log("[Firestore] getUserDocument starting:", { userId })
+    const snap = await getDoc(userRef)
+    if (!snap.exists()) {
+      console.log("[Firestore] getUserDocument missing profile:", { userId })
+      return null
+    }
 
-  const data = snap.data()
-  // Normalize Firestore Timestamps to ISO strings for the UI
-  return {
-    ...data,
-    createdAt:
-      data.createdAt instanceof Timestamp
-        ? data.createdAt.toDate().toISOString()
-        : (data.createdAt ?? ""),
-    updatedAt:
-      data.updatedAt instanceof Timestamp
-        ? data.updatedAt.toDate().toISOString()
-        : (data.updatedAt ?? ""),
-  } as User
+    const data = snap.data()
+    console.log("[Firestore] getUserDocument succeeded:", { userId })
+    // Normalize Firestore Timestamps to ISO strings for the UI
+    return {
+      ...data,
+      createdAt:
+        data.createdAt instanceof Timestamp
+          ? data.createdAt.toDate().toISOString()
+          : (data.createdAt ?? ""),
+      updatedAt:
+        data.updatedAt instanceof Timestamp
+          ? data.updatedAt.toDate().toISOString()
+          : (data.updatedAt ?? ""),
+    } as User
+  } catch (error) {
+    logFirestoreFailure("getUserDocument", { userId }, error)
+    throw error
+  }
 }
 
 // ─── Update ───────────────────────────────────────────────────────────────────
@@ -107,7 +154,12 @@ export async function updateUserDocument(
   data: Partial<User>
 ): Promise<void> {
   const userRef = doc(db, "users", userId)
-  await updateDoc(userRef, { ...data, updatedAt: serverTimestamp() })
+  try {
+    await updateDoc(userRef, { ...data, updatedAt: serverTimestamp() })
+  } catch (error) {
+    logFirestoreFailure("updateUserDocument", { userId, fields: Object.keys(data) }, error)
+    throw error
+  }
 }
 
 /**

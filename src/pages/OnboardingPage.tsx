@@ -28,10 +28,6 @@ interface RecommendedPlan {
   reason: string
 }
 
-interface FirestoreSetupError extends Error {
-  code: string
-}
-
 interface FirebaseDiagnosticResult {
   label: string
   status: string
@@ -50,6 +46,23 @@ function getErrorCode(error: unknown) {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
     ? error.code
     : ""
+}
+
+function getDetailedError(error: unknown) {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      code: "code" in error ? error.code : undefined,
+      customData: "customData" in error ? error.customData : undefined,
+      cause: "cause" in error ? error.cause : undefined,
+    }
+  }
+
+  return {
+    message: String(error),
+  }
 }
 
 function withOnboardingTimeout<T>(promise: Promise<T>, label: string, code: string): Promise<T> {
@@ -261,39 +274,51 @@ export function OnboardingPage() {
     }
     const finalPlanId = selectedPlanId ?? recommendedPlan.id
     const finalPlan = finalPlanId === "custom" ? null : getPlanById(finalPlanId)
+    console.log("[Onboarding] Auth user created; starting non-blocking Firestore setup:", { uid: fbUser.uid })
     try {
-      console.log("[Onboarding] Firestore profile setup starting:", { uid: fbUser.uid })
       await withOnboardingTimeout(
-        (async () => {
-          await createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
-            goal,
-            location,
-            level,
-            daysPerWeek: days,
-            preferredTime: "Morning",
-            recommendedPlan: finalPlanId === "custom" ? "Custom Plan" : finalPlan?.name ?? recommendedPlan.name,
-          })
-          await initUserAchievements(fbUser.uid)
-
-          // Activate the recommended plan and generate scheduled workouts
-          if (finalPlan) {
-            const workoutNameMap = buildWorkoutNameMap(finalPlan)
-            await activatePlan(fbUser.uid, finalPlan, workoutNameMap)
-            await checkAndUnlockAchievements(fbUser.uid)
-          }
-
-          await refreshUserDoc()
-        })(),
-        "Firestore profile setup",
-        "firestore/setup-timeout"
+        createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
+          goal,
+          location,
+          level,
+          daysPerWeek: days,
+          preferredTime: "Morning",
+          recommendedPlan: finalPlanId === "custom" ? "Custom Plan" : finalPlan?.name ?? recommendedPlan.name,
+        }),
+        "Firestore profile document creation",
+        "firestore/profile-create-timeout"
       )
+
+      await withOnboardingTimeout(
+        initUserAchievements(fbUser.uid),
+        "Firestore achievements initialization",
+        "firestore/achievements-timeout"
+      )
+
+      if (finalPlan) {
+        const workoutNameMap = buildWorkoutNameMap(finalPlan)
+        await withOnboardingTimeout(
+          activatePlan(fbUser.uid, finalPlan, workoutNameMap),
+          "Firestore plan activation",
+          "firestore/plan-activation-timeout"
+        )
+        await withOnboardingTimeout(
+          checkAndUnlockAchievements(fbUser.uid),
+          "Firestore achievement unlock check",
+          "firestore/achievement-check-timeout"
+        )
+      }
+
+      await refreshUserDoc()
       console.log("[Onboarding] Firestore profile setup succeeded:", { uid: fbUser.uid })
     } catch (error) {
-      console.error("[Onboarding] Firestore profile setup failed:", error)
-      throw Object.assign(
-        error instanceof Error ? error : new Error("Firestore profile setup failed"),
-        { code: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : "firestore/setup-failed" }
-      ) as FirestoreSetupError
+      console.error("[Onboarding] Firestore setup failed after Auth success; continuing signup:", {
+        uid: fbUser.uid,
+        finalPlanId,
+        error: getDetailedError(error),
+        rawError: error,
+      })
+      setAuthError(`Account created. Firestore setup failed: ${toDisplayedError(error, "firestore/setup-failed", "Firestore profile setup failed")}`)
     }
     navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
   }
