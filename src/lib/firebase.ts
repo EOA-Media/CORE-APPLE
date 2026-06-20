@@ -1,7 +1,7 @@
-import { initializeApp, getApps } from "firebase/app"
-import { getAuth } from "firebase/auth"
-import { getFirestore } from "firebase/firestore"
-import { getStorage } from "firebase/storage"
+import { initializeApp, getApps, type FirebaseApp } from "firebase/app"
+import { getAuth, type Auth } from "firebase/auth"
+import { getFirestore, type Firestore } from "firebase/firestore"
+import { getStorage, type FirebaseStorage } from "firebase/storage"
 
 const env = import.meta.env as Record<string, string | undefined>
 const getFirebaseEnv = (viteKey: string, codemagicKey: string) => env[viteKey] ?? env[codemagicKey]
@@ -15,12 +15,23 @@ const firebaseConfig = {
   appId: getFirebaseEnv("VITE_FIREBASE_APP_ID", "FIREBASE_APP_ID"),
 }
 
+export const firebaseEnvPresence = {
+  VITE_FIREBASE_API_KEY: !!env.VITE_FIREBASE_API_KEY,
+  VITE_FIREBASE_AUTH_DOMAIN: !!env.VITE_FIREBASE_AUTH_DOMAIN,
+  VITE_FIREBASE_PROJECT_ID: !!env.VITE_FIREBASE_PROJECT_ID,
+  VITE_FIREBASE_APP_ID: !!env.VITE_FIREBASE_APP_ID,
+}
+
+console.log("[Firebase] env presence before initializeApp:", firebaseEnvPresence)
+
 const requiredFirebaseConfig = ["apiKey", "authDomain", "projectId", "appId"] as const
 const missingFirebaseConfig = requiredFirebaseConfig.filter((key) => !firebaseConfig[key])
 
 export const firebaseConfigStatus = {
   isComplete: missingFirebaseConfig.length === 0,
   missingKeys: missingFirebaseConfig,
+  envPresence: firebaseEnvPresence,
+  initializationError: null as string | null,
 }
 
 console.log("[Firebase] firebaseConfigStatus.missingKeys:", firebaseConfigStatus.missingKeys)
@@ -31,10 +42,17 @@ if (!firebaseConfigStatus.isComplete) {
   console.log("[Firebase] Configuration loaded for project:", firebaseConfig.projectId)
 }
 
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+let app: FirebaseApp | null = null
 
-export const auth = getAuth(app)
-export const db = getFirestore(app)
-export const storage = getStorage(app)
+try {
+  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0]
+} catch (error) {
+  firebaseConfigStatus.initializationError = error instanceof Error ? error.message : String(error)
+  console.error("[Firebase] initializeApp failed:", error)
+}
+
+export const auth = app ? getAuth(app) : (null as unknown as Auth)
+export const db = app ? getFirestore(app) : (null as unknown as Firestore)
+export const storage = app ? getStorage(app) : (null as unknown as FirebaseStorage)
 
 export default app

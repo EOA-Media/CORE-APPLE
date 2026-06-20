@@ -6,7 +6,7 @@ import { signOutUser } from "@/services/authService"
 import { getDefaultWorkoutReminderSettings, saveWorkoutReminderSettings } from "@/services/pushNotificationService"
 import type { User } from "@/data/models"
 
-type AuthMode = "loading" | "authenticated" | "guest" | "unauthenticated" | "onboarding"
+type AuthMode = "loading" | "authenticated" | "guest" | "unauthenticated" | "onboarding" | "error"
 
 const AUTH_STARTUP_TIMEOUT_MS = 5000
 const PROFILE_LOAD_TIMEOUT_MS = 10000
@@ -31,6 +31,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [startupError, setStartupError] = useState<string | null>(null)
 
   const isGuestRef = useRef(false)
+
+  function setStartupFailure(message: string, error?: unknown) {
+    console.error("[Auth] Startup failed:", message, error)
+    setStartupError(message)
+    setMode("error")
+  }
 
   function finishStartupUnauthenticated(message: string, error?: unknown) {
     console.warn("[Auth] Continuing without Firebase auth:", message, error)
@@ -117,6 +123,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     console.log("[Auth] Starting Firebase auth listener")
     console.log("[Auth] firebaseConfigStatus.missingKeys:", firebaseConfigStatus.missingKeys)
+
+    if (firebaseConfigStatus.initializationError) {
+      const envPresence = Object.entries(firebaseConfigStatus.envPresence)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(", ")
+      setStartupFailure(
+        `Firebase initialization failed: ${firebaseConfigStatus.initializationError}. Env presence: ${envPresence}`
+      )
+      return
+    }
 
     if (!firebaseConfigStatus.isComplete) {
       finishStartupUnauthenticated(
