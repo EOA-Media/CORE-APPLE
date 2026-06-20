@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Dumbbell, Clock, Flame, Award, Users, Mail, Lock, User, AlertCircle, Loader2, Sparkles, SlidersHorizontal } from "lucide-react"
-import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/authService"
+import { signUpWithEmail, signInWithEmail, signInWithGoogle, type EmailAuthError } from "@/services/authService"
 import { createUserDocument, isDisplayNameTaken, updateUserDocument } from "@/services/userService"
 import { checkAndUnlockAchievements, initUserAchievements } from "@/services/achievementService"
 import { activatePlan } from "@/services/planService"
@@ -216,12 +216,11 @@ export function OnboardingPage() {
         navigate("/")
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Authentication failed"
-      if (msg.includes("email-already-in-use")) setAuthError("An account with this email already exists")
-      else if (msg.includes("wrong-password") || msg.includes("invalid-credential")) setAuthError("Incorrect email or password")
-      else if (msg.includes("user-not-found")) setAuthError("No account found with this email")
-      else if (msg.includes("weak-password")) setAuthError("Password must be at least 6 characters")
-      else setAuthError("Something went wrong. Please try again.")
+      const authErr = err as Partial<EmailAuthError>
+      const code = typeof authErr.code === "string" ? authErr.code : "auth/unknown"
+      const message = err instanceof Error ? err.message : "Authentication failed"
+      console.error("[Onboarding] Email authentication failed:", err)
+      setAuthError(`${code}: ${message}`)
     } finally {
       setAuthLoading(false)
     }
