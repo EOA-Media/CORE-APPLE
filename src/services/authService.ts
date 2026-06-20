@@ -10,7 +10,6 @@ import {
 import { auth } from "@/lib/firebase"
 
 const googleProvider = new GoogleAuthProvider()
-const EMAIL_AUTH_TIMEOUT_MS = 45000
 
 export interface EmailAuthError extends Error {
   code: string
@@ -25,23 +24,6 @@ function toEmailAuthError(error: unknown, fallbackCode = "auth/unknown"): EmailA
   return Object.assign(new Error(String(error)), { code: fallbackCode })
 }
 
-function withEmailAuthTimeout<T>(promise: Promise<T>, action: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      const timeoutError = Object.assign(
-        new Error(`${action} timed out after ${EMAIL_AUTH_TIMEOUT_MS / 1000} seconds`),
-        { code: "auth/timeout" }
-      )
-      console.error(`[AuthService] ${action} timed out:`, timeoutError)
-      reject(timeoutError)
-    }, EMAIL_AUTH_TIMEOUT_MS)
-
-    promise
-      .then(resolve, reject)
-      .finally(() => window.clearTimeout(timeout))
-  })
-}
-
 export async function signUpWithEmail(
   email: string,
   password: string,
@@ -49,12 +31,9 @@ export async function signUpWithEmail(
 ): Promise<FirebaseUser> {
   console.log("[AuthService] createUserWithEmailAndPassword starting")
   try {
-    const credential = await withEmailAuthTimeout(
-      createUserWithEmailAndPassword(auth, email, password),
-      "createUserWithEmailAndPassword"
-    )
+    const credential = await createUserWithEmailAndPassword(auth, email, password)
     console.log("[AuthService] createUserWithEmailAndPassword succeeded:", { uid: credential.user.uid })
-    await withEmailAuthTimeout(updateProfile(credential.user, { displayName }), "updateProfile")
+    await updateProfile(credential.user, { displayName })
     return credential.user
   } catch (error) {
     console.error("[AuthService] createUserWithEmailAndPassword failed:", error)
@@ -65,10 +44,7 @@ export async function signUpWithEmail(
 export async function signInWithEmail(email: string, password: string): Promise<FirebaseUser> {
   console.log("[AuthService] signInWithEmailAndPassword starting")
   try {
-    const credential = await withEmailAuthTimeout(
-      signInWithEmailAndPassword(auth, email, password),
-      "signInWithEmailAndPassword"
-    )
+    const credential = await signInWithEmailAndPassword(auth, email, password)
     console.log("[AuthService] signInWithEmailAndPassword succeeded:", { uid: credential.user.uid })
     return credential.user
   } catch (error) {

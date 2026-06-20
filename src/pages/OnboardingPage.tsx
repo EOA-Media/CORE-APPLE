@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { Dumbbell, Clock, Flame, Award, Users, Mail, Lock, User, AlertCircle, Loader2, Sparkles, SlidersHorizontal } from "lucide-react"
 import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/authService"
-import { createUserDocument, isDisplayNameTaken, updateUserDocument } from "@/services/userService"
+import { createUserDocument, updateUserDocument } from "@/services/userService"
 import { checkAndUnlockAchievements, initUserAchievements } from "@/services/achievementService"
 import { activatePlan } from "@/services/planService"
 import { ALL_CORE_PLANS, getCorePlanForOnboarding, getPlanById, getProgramReason, buildWorkoutNameMap } from "@/data/planSeedData"
@@ -44,6 +44,12 @@ function toDisplayedError(error: unknown, fallbackCode: string, fallbackMessage:
     : fallbackCode
   const message = error instanceof Error ? error.message : fallbackMessage
   return `${code}: ${message}`
+}
+
+function getErrorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : ""
 }
 
 function withOnboardingTimeout<T>(promise: Promise<T>, label: string, code: string): Promise<T> {
@@ -299,14 +305,6 @@ export function OnboardingPage() {
     try {
       if (authTab === "signup") {
         if (!authName.trim()) { setAuthError("Display name is required"); setAuthLoading(false); return }
-        console.log("[Onboarding] Display name availability check starting")
-        const taken = await withOnboardingTimeout(
-          isDisplayNameTaken(authName.trim()),
-          "Display name availability check",
-          "firestore/display-name-timeout"
-        )
-        console.log("[Onboarding] Display name availability check succeeded:", { taken })
-        if (taken) { setAuthError("That username is already taken. Please choose a different one."); setAuthLoading(false); return }
         const fbUser = await signUpWithEmail(authEmail, authPassword, authName.trim())
         await finishWithAccount(fbUser)
       } else {
@@ -316,8 +314,14 @@ export function OnboardingPage() {
       }
     } catch (err: unknown) {
       console.error("[Onboarding] Email authentication failed:", err)
-      const fallbackCode = authTab === "signup" ? "auth/signup-failed" : "auth/signin-failed"
-      setAuthError(toDisplayedError(err, fallbackCode, "Authentication failed"))
+      const code = getErrorCode(err)
+      const isFirestoreError = code.startsWith("firestore/")
+      const fallbackCode = isFirestoreError
+        ? "firestore/setup-failed"
+        : authTab === "signup" ? "auth/signup-failed" : "auth/signin-failed"
+      const fallbackMessage = isFirestoreError ? "Firestore profile setup failed" : "Authentication failed"
+      const displayedError = toDisplayedError(err, fallbackCode, fallbackMessage)
+      setAuthError(isFirestoreError ? `Firestore profile error: ${displayedError}` : displayedError)
     } finally {
       setAuthLoading(false)
     }
