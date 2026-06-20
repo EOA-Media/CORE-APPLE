@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth"
 import { auth, firebaseConfigStatus } from "@/lib/firebase"
 import { getUserDocument } from "@/services/userService"
-import { signOutUser } from "@/services/authService"
+import { getStoredRestAuthUser, isCapacitorIos, signOutUser, type CoreAuthUser } from "@/services/authService"
 import { getDefaultWorkoutReminderSettings, saveWorkoutReminderSettings } from "@/services/pushNotificationService"
 import type { User } from "@/data/models"
 
@@ -12,7 +12,7 @@ const AUTH_STARTUP_TIMEOUT_MS = 5000
 const PROFILE_LOAD_TIMEOUT_MS = 10000
 
 interface AuthContextValue {
-  firebaseUser: FirebaseUser | null
+  firebaseUser: FirebaseUser | CoreAuthUser | null
   userDoc: User | null
   mode: AuthMode
   startupError: string | null
@@ -25,7 +25,7 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null)
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | CoreAuthUser | null>(null)
   const [userDoc, setUserDoc] = useState<User | null>(null)
   const [mode, setMode] = useState<AuthMode>("loading")
   const [startupError, setStartupError] = useState<string | null>(null)
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  async function loadUserDoc(fbUser: FirebaseUser) {
+  async function loadUserDoc(fbUser: FirebaseUser | CoreAuthUser) {
     console.log("[Auth] Loading Firestore profile:", fbUser.uid)
     try {
       const doc = await withTimeout(
@@ -164,6 +164,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         `Firebase is missing required configuration: ${firebaseConfigStatus.missingKeys.join(", ")}`
       )
       return
+    }
+
+    if (isCapacitorIos()) {
+      console.log("[Auth] Starting iOS REST auth session check")
+      const restUser = getStoredRestAuthUser()
+      setFirebaseUser(restUser)
+      if (restUser) {
+        console.log("[Auth] iOS REST auth session loaded:", { uid: restUser.uid })
+        isGuestRef.current = false
+        void loadUserDoc(restUser)
+      } else {
+        setUserDoc(null)
+        setStartupError(null)
+        setMode("unauthenticated")
+      }
+
+      const handleRestAuthChanged = (event: Event) => {
+        const restAuthEvent = event as CustomEvent<CoreAuthUser | null>
+        const nextUser = restAuthEvent.detail
+        console.log("[Auth] iOS REST auth session changed:", {
+          hasUser: !!nextUser,
+          uid: nextUser?.uid,
+        })
+        setFirebaseUser(nextUser)
+        if (nextUser) {
+          isGuestRef.current = false
+          void loadUserDoc(nextUser)
+        } else {
+          setUserDoc(null)
+          setStartupError(null)
+          if (!isGuestRef.current) {
+            setMode("unauthenticated")
+          }
+        }
+      }
+
+      window.addEventListener("core:rest-auth-changed", handleRestAuthChanged)
+      return () => window.removeEventListener("core:rest-auth-changed", handleRestAuthChanged)
     }
 
     let settled = false
