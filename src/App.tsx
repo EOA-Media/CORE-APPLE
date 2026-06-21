@@ -31,7 +31,7 @@ class AppErrorBoundary extends Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="app-bg flex h-svh items-center justify-center px-6">
+        <div className="app-bg flex h-svh w-full items-center justify-center px-6">
           <div className="glass max-w-[360px] rounded-3xl p-6 text-center">
             <p className="text-sm font-semibold text-foreground">Something went wrong.</p>
             <p className="mt-2 text-xs text-muted-foreground">{this.state.error.message}</p>
@@ -54,7 +54,7 @@ class AppErrorBoundary extends Component<
 
 function AppLoading() {
   return (
-    <div className="app-bg flex h-svh items-center justify-center">
+    <div className="app-bg flex h-svh w-full items-center justify-center">
         <div className="flex flex-col items-center gap-4">
           <div className="glass motion-soft-pop flex size-16 items-center justify-center rounded-3xl">
             <CoreLogo markClassName="h-9 w-12" />
@@ -69,7 +69,7 @@ function AppLoading() {
 
 function StartupError({ message }: { message: string }) {
   return (
-    <div className="app-bg flex h-svh items-center justify-center px-6">
+    <div className="app-bg flex h-svh w-full items-center justify-center px-6">
       <div className="glass max-w-[360px] rounded-3xl p-6 text-center">
         <p className="text-sm font-semibold text-foreground">CORE couldn't start.</p>
         <p className="mt-2 text-xs text-muted-foreground">{message}</p>
@@ -110,10 +110,10 @@ function AppLayout() {
   }
 
   return (
-    <div className="app-bg relative mx-auto flex h-svh max-w-[430px] flex-col overflow-hidden">
+    <div className="app-bg relative mx-auto flex h-svh w-full max-w-[430px] flex-col overflow-hidden">
       {isGuest && <GuestBanner />}
       <AppHeader />
-      <main key={location.pathname} className="motion-fade-rise flex-1 overflow-y-auto pb-24">
+      <main key={location.pathname} className="motion-fade-rise flex-1 overflow-x-hidden overflow-y-auto pb-24">
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/plan" element={<PlanPage />} />

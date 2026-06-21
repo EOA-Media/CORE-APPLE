@@ -327,7 +327,17 @@ export function OnboardingPage() {
         rawError: error,
       })
       setAuthError(`Account created. Firestore setup failed: ${toDisplayedError(error, "firestore/setup-failed", "Firestore profile setup failed")}`)
+      try {
+        await refreshUserDoc(fbUser)
+      } catch (refreshError) {
+        console.error("[Onboarding] Auth user refresh failed after Firestore setup error:", {
+          uid: fbUser.uid,
+          error: getDetailedError(refreshError),
+          rawError: refreshError,
+        })
+      }
       setAuthLoading(false)
+      navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
       return
     }
     setAuthLoading(false)
@@ -421,7 +431,7 @@ export function OnboardingPage() {
   }
 
   return (
-    <div className="app-bg relative mx-auto flex min-h-svh max-w-[430px] flex-col">
+    <div className="app-bg relative mx-auto flex min-h-svh w-full max-w-[430px] flex-col overflow-x-hidden overflow-y-auto">
       {step > 0 && step < 9 && (
         <div className="px-6 pt-4">
           <div className="h-1 w-full rounded-full bg-secondary">

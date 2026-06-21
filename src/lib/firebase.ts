@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core"
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app"
-import { browserLocalPersistence, getAuth, inMemoryPersistence, initializeAuth, type Auth } from "firebase/auth"
+import { browserLocalPersistence, getAuth, initializeAuth, type Auth } from "firebase/auth"
 import { getFirestore, initializeFirestore, type Firestore } from "firebase/firestore"
 import { getStorage, type FirebaseStorage } from "firebase/storage"
 
@@ -66,9 +66,9 @@ try {
 
 function createAuth(firebaseApp: FirebaseApp): Auth {
   try {
-    console.log("[Firebase] Initializing Auth persistence:", isNativeIos ? "inMemoryPersistence" : "browserLocalPersistence")
+    console.log("[Firebase] Initializing Auth persistence: browserLocalPersistence")
     return initializeAuth(firebaseApp, {
-      persistence: isNativeIos ? inMemoryPersistence : browserLocalPersistence,
+      persistence: browserLocalPersistence,
     })
   } catch (error) {
     console.warn("[Firebase] initializeAuth fell back to getAuth:", error)

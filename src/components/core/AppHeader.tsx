@@ -129,7 +129,7 @@ export function AppHeader() {
 
   return (
     <>
-      <header className="motion-fade-rise relative flex items-center justify-between border-b border-border/40 px-5 py-5">
+      <header className="motion-fade-rise relative flex items-center justify-between border-b border-border/40 px-5 pb-5 pt-[calc(env(safe-area-inset-top)+0.75rem)]">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/profile")}
