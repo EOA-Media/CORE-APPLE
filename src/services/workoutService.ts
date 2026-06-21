@@ -97,15 +97,15 @@ export async function generateScheduledWorkouts(
     planId?: string
     planName?: string
   }[],
-  durationDays = 63
+  durationDays = 63,
+  startDate = getAppDate()
 ): Promise<void> {
-  const today = getAppDate()
   const writes: Promise<void>[] = []
 
   console.log("[generateScheduledWorkouts] generating", durationDays, "days for userId:", userId)
 
   for (let i = 0; i < durationDays; i++) {
-    const date = addDays(today, i)
+    const date = addDays(startDate, i)
     const dayOfWeek = date.getDay()
     const entry = planSchedule.find((s) => s.dayOfWeek === dayOfWeek)
     if (!entry) continue
@@ -165,10 +165,14 @@ export async function generateScheduledWorkouts(
 }
 
 export async function clearScheduledWorkoutsFromToday(userId: string): Promise<void> {
+  await clearScheduledWorkoutsFromDate(userId, getTodayString())
+}
+
+export async function clearScheduledWorkoutsFromDate(userId: string, startDate: string): Promise<void> {
   const today = getTodayString()
   const q = query(
     collection(db, "users", userId, "scheduledWorkouts"),
-    where("date", ">=", today)
+    where("date", ">=", startDate || today)
   )
   const snap = await getDocs(q)
   await Promise.all(snap.docs.map((scheduledDoc) => deleteDoc(scheduledDoc.ref)))

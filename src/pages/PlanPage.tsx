@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { Check, X, Moon, Dumbbell, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { CalendarDays, Check, X, Moon, Dumbbell, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { allWorkouts } from "@/data/mock"
 import { formatElapsedTime } from "@/data/helpers"
@@ -15,13 +15,22 @@ import {
 import { useAuth } from "@/contexts/AuthContext"
 import { getScheduledWorkouts } from "@/services/workoutService"
 import { calculateConsistencyFromSchedule, markMissedWorkouts, syncUserStatsFromSchedule, syncUserStreakFromSchedule } from "@/services/workoutService"
-import { activatePlan, getPlan, getWorkoutsForPlan } from "@/services/planService"
+import { activatePlan, buildPlanScheduleEntries, getAutoRestDays, getPlan, getWorkoutsForPlan, updatePlanRestDays } from "@/services/planService"
 import { DEFAULT_CORE_PLAN_ID, getPlanById, buildWorkoutNameMap, ALL_CORE_PLANS, getWorkoutById } from "@/data/planSeedData"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, getDaysInMonth, getDay, addDays, addMonths, subMonths, isBefore, isAfter, isSameMonth } from "date-fns"
 import { getAppDate, getTodayString } from "@/lib/appDate"
 import type { WorkoutPlan } from "@/data/models"
 
 const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+const REST_DAY_OPTIONS = [
+  { dayOfWeek: 1, label: "Monday", shortLabel: "MON" },
+  { dayOfWeek: 2, label: "Tuesday", shortLabel: "TUE" },
+  { dayOfWeek: 3, label: "Wednesday", shortLabel: "WED" },
+  { dayOfWeek: 4, label: "Thursday", shortLabel: "THU" },
+  { dayOfWeek: 5, label: "Friday", shortLabel: "FRI" },
+  { dayOfWeek: 6, label: "Saturday", shortLabel: "SAT" },
+  { dayOfWeek: 0, label: "Sunday", shortLabel: "SUN" },
+]
 const PLAN_PAGE_LOAD_TIMEOUT_MS = 15000
 
 interface PlanOption {
@@ -119,6 +128,9 @@ export function PlanPage() {
   const [selectedDay, setSelectedDay] = useState<ScheduledWorkout | null>(null)
   const [showChangePlan, setShowChangePlan] = useState(false)
   const [showPlanList, setShowPlanList] = useState(false)
+  const [showRestDays, setShowRestDays] = useState(false)
+  const [selectedRestDays, setSelectedRestDays] = useState<number[]>([])
+  const [savingRestDays, setSavingRestDays] = useState(false)
   const [switchingPlan, setSwitchingPlan] = useState(false)
   const [liveWeekly, setLiveWeekly] = useState<ScheduledWorkout[] | null>(null)
   const [liveMonthly, setLiveMonthly] = useState<ScheduledWorkout[] | null>(null)
@@ -153,6 +165,21 @@ export function PlanPage() {
     ? format(addDays(new Date(`${planStartDate}T12:00:00`), planDurationDays - 1), "yyyy-MM-dd")
     : undefined
   const planEndDate = userDoc?.currentPlanEndsAt ?? calculatedPlanEndDate ?? scheduledPlanBounds?.end
+  const protectedRestDay = planStartDate
+    ? new Date(`${planStartDate}T12:00:00`).getDay()
+    : now.getDay()
+  const restDayCount = Math.max(0, 7 - currentPlan.daysPerWeek)
+  const currentRestDays = useMemo(() => (
+    userDoc?.preferredRestDays?.length
+      ? userDoc.preferredRestDays
+      : getAutoRestDays(currentPlan, protectedRestDay)
+  ), [currentPlan, protectedRestDay, userDoc?.preferredRestDays])
+  const currentWorkoutNameMap = useMemo(() => (
+    currentPlan.type === "core" ? buildWorkoutNameMap(currentPlan) : undefined
+  ), [currentPlan])
+  const currentScheduleEntries = useMemo(() => (
+    buildPlanScheduleEntries(currentPlan, currentWorkoutNameMap, currentRestDays, protectedRestDay)
+  ), [currentPlan, currentRestDays, currentWorkoutNameMap, protectedRestDay])
   const elapsedPlanDays = planStartDate
     ? Math.max(0, Math.min(planDurationDays, daysBetween(planStartDate, today) + 1))
     : 0
@@ -185,6 +212,10 @@ export function PlanPage() {
     })),
     { id: "custom", name: "Create Custom Plan", level: "custom", days: 0, kind: "create-custom" as const },
   ], [savedCustomPlans])
+
+  useEffect(() => {
+    if (showRestDays) setSelectedRestDays(currentRestDays)
+  }, [showRestDays, currentRestDays])
   useEffect(() => {
     const planId = userDoc?.currentPlanId
     if (!planId || getPlanById(planId)) {
@@ -258,7 +289,7 @@ export function PlanPage() {
       if ((planStartDate && dateStr < planStartDate) || (planEndDate && dateStr > planEndDate)) {
         return { date: dateStr, workoutId: null, workoutName: "Program Complete", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
       }
-      const planDay = currentPlan.schedule.find((s) => s.dayOfWeek === dow)
+      const planDay = currentScheduleEntries.find((s) => s.dayOfWeek === dow)
       if (!planDay) return { date: dateStr, workoutId: null, workoutName: "Rest Day", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
       if (planDay.isRest) return { date: dateStr, workoutId: null, workoutName: "Rest Day", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
       const wk = getWorkoutById(planDay.workoutId ?? "")
@@ -266,14 +297,14 @@ export function PlanPage() {
       return {
         date: dateStr,
         workoutId: planDay.workoutId,
-        workoutName: wk?.name ?? "Workout",
+        workoutName: wk?.name ?? planDay.workoutName,
         status: isPast ? "missed" as const : "scheduled" as const,
         completionPercent: 0,
         disciplinePointsEarned: 0,
         elapsedSeconds: 0,
       }
     })
-  }, [currentPlan, today, planStartDate, planEndDate])
+  }, [currentScheduleEntries, today, planStartDate, planEndDate])
 
   useEffect(() => {
     if (isBefore(selectedMonth, accountCreatedMonth)) {
@@ -389,6 +420,74 @@ export function PlanPage() {
       setPlanLoadError(getPlanPageErrorMessage(err, "firestore/plan-switch-failed", "Plan switch failed"))
     } finally {
       setSwitchingPlan(false)
+    }
+  }
+
+  function toggleRestDay(dayOfWeek: number) {
+    if (dayOfWeek === protectedRestDay || savingRestDays) return
+    setSelectedRestDays((days) => {
+      if (days.includes(dayOfWeek)) {
+        return days.filter((day) => day !== dayOfWeek)
+      }
+      if (days.length >= restDayCount) return days
+      return [...days, dayOfWeek].sort((a, b) => a - b)
+    })
+  }
+
+  async function handleSaveRestDays() {
+    if (!firebaseUser || isGuest || selectedRestDays.length !== restDayCount) return
+
+    setSavingRestDays(true)
+    setPlanLoadError("")
+    try {
+      const savedWorkouts = currentPlan.type === "custom"
+        ? await withPlanTimeout(getWorkoutsForPlan(currentPlan.id), "Custom plan workouts load")
+        : []
+      const workoutNameMap = currentPlan.type === "custom"
+        ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout.name]))
+        : buildWorkoutNameMap(currentPlan)
+      const restScheduleStart = addDays(now, 1)
+      const restScheduleStartString = format(restScheduleStart, "yyyy-MM-dd")
+      const remainingScheduleDays = planEndDate
+        ? Math.max(0, daysBetween(restScheduleStartString, planEndDate) + 1)
+        : Math.max(1, planDurationDays - elapsedPlanDays)
+
+      await withPlanTimeout(
+        updatePlanRestDays(
+          firebaseUser.uid,
+          currentPlan,
+          selectedRestDays,
+          workoutNameMap,
+          remainingScheduleDays,
+          restScheduleStart,
+          protectedRestDay
+        ),
+        "Rest day update"
+      )
+      await refreshUserDoc(firebaseUser)
+
+      const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
+      const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
+      const monthStart = format(selectedMonth, "yyyy-MM-dd")
+      const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
+      const [weekly, monthly] = await withPlanTimeout(
+        Promise.all([
+          getScheduledWorkouts(firebaseUser.uid, weekStart, weekEnd),
+          getScheduledWorkouts(firebaseUser.uid, monthStart, monthEnd),
+        ]),
+        "Workout calendar reload"
+      )
+
+      const normalizedWeekly = normalizePastScheduled(weekly, today).filter(isInsideActiveProgram)
+      const normalizedMonthly = normalizePastScheduled(monthly, today).filter(isInsideActiveProgram)
+      setLiveWeekly(normalizedWeekly.length > 0 ? normalizedWeekly : null)
+      setLiveMonthly(normalizedMonthly.length > 0 ? normalizedMonthly : null)
+      setShowRestDays(false)
+    } catch (err) {
+      console.error("[PlanPage] rest day update failed:", err)
+      setPlanLoadError(getPlanPageErrorMessage(err, "firestore/rest-day-update-failed", "Rest day update failed"))
+    } finally {
+      setSavingRestDays(false)
     }
   }
 
@@ -645,6 +744,21 @@ export function PlanPage() {
             </span>
           ) : "Change Plan"}
         </button>
+        <button
+          onClick={() => setShowRestDays(true)}
+          disabled={switchingPlan || savingRestDays || restDayCount === 0}
+          className="glass mt-3 flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-semibold text-foreground transition-all duration-250 hover:border-[var(--gold)]/30 active:scale-[0.97] disabled:opacity-50"
+        >
+          {savingRestDays ? (
+            <>
+              <Loader2 className="size-4 animate-spin" /> Saving Rest Days...
+            </>
+          ) : (
+            <>
+              <CalendarDays className="size-4" /> Choose Rest Days
+            </>
+          )}
+        </button>
       </div>
 
       {/* Day Detail Modal */}
@@ -725,6 +839,67 @@ export function PlanPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Rest Days Modal */}
+      <Dialog open={showRestDays} onOpenChange={setShowRestDays}>
+        <DialogContent className="max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Choose Rest Days</DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Select {restDayCount} rest day{restDayCount === 1 ? "" : "s"}. Your first program day stays a workout day.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-2.5">
+              {REST_DAY_OPTIONS.map((day) => {
+                const selected = selectedRestDays.includes(day.dayOfWeek)
+                const protectedDay = day.dayOfWeek === protectedRestDay
+                const addingDisabled = !selected && selectedRestDays.length >= restDayCount
+                return (
+                  <button
+                    key={day.dayOfWeek}
+                    type="button"
+                    onClick={() => toggleRestDay(day.dayOfWeek)}
+                    disabled={protectedDay || addingDisabled || savingRestDays}
+                    className={cn(
+                      "rounded-2xl px-4 py-3.5 text-left transition-all duration-250 active:scale-[0.97] disabled:opacity-40",
+                      selected
+                        ? "glass border-[var(--gold)]/40 text-[var(--gold)] glow-gold-subtle"
+                        : "glass-subtle text-foreground hover:border-[var(--glass-border)]"
+                    )}
+                  >
+                    <span className="block text-xs font-bold">{day.shortLabel}</span>
+                    <span className="mt-1 block text-[11px] text-muted-foreground">
+                      {protectedDay ? "First day" : selected ? "Rest" : "Workout"}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="space-y-2.5">
+              <button
+                onClick={() => setShowRestDays(false)}
+                disabled={savingRestDays}
+                className="glass w-full rounded-2xl py-3.5 text-sm font-semibold text-foreground transition-all duration-250 hover:border-[var(--gold)]/30 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRestDays}
+                disabled={savingRestDays || selectedRestDays.length !== restDayCount}
+                className="glow-gold w-full rounded-2xl border border-[var(--gold)]/30 bg-[var(--gold)] py-3.5 text-sm font-bold text-[var(--gold-foreground)] transition-all duration-250 disabled:opacity-50"
+              >
+                {savingRestDays ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Loader2 className="size-4 animate-spin" /> Saving...
+                  </span>
+                ) : "Save Rest Days"}
+              </button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

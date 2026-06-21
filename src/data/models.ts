@@ -22,6 +22,7 @@ export interface User {
   pushNotificationsEnabled?: boolean
   workoutReminderEnabled?: boolean
   workoutReminderHour?: number
+  preferredRestDays?: number[]
   timezone?: string
   pushTokens?: string[]
   pushPermissionStatus?: "unknown" | "granted" | "denied" | "prompt"
