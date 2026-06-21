@@ -1,15 +1,11 @@
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
   signOut,
   updateProfile,
   type User as FirebaseUser,
 } from "firebase/auth"
 import { auth } from "@/lib/firebase"
-
-const googleProvider = new GoogleAuthProvider()
 
 export interface EmailAuthError extends Error {
   code: string
@@ -54,7 +50,8 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 export async function signInWithGoogle(): Promise<FirebaseUser> {
-  const credential = await signInWithPopup(auth, googleProvider)
+  const { browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup } = await import("firebase/auth")
+  const credential = await signInWithPopup(auth, new GoogleAuthProvider(), browserPopupRedirectResolver)
   return credential.user
 }
 
