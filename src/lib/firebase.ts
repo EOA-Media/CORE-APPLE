@@ -1,5 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app"
-import { getAuth, type Auth } from "firebase/auth"
+import { browserLocalPersistence, browserPopupRedirectResolver, getAuth, initializeAuth, type Auth } from "firebase/auth"
 import { getFirestore, type Firestore } from "firebase/firestore"
 import { getStorage, type FirebaseStorage } from "firebase/storage"
 
@@ -56,7 +56,20 @@ try {
   console.error("[Firebase] initializeApp failed:", error)
 }
 
-export const auth = app ? getAuth(app) : (null as unknown as Auth)
+function createAuth(firebaseApp: FirebaseApp): Auth {
+  try {
+    console.log("[Firebase] Initializing Auth with browserLocalPersistence")
+    return initializeAuth(firebaseApp, {
+      persistence: browserLocalPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    })
+  } catch (error) {
+    console.warn("[Firebase] initializeAuth fell back to getAuth:", error)
+    return getAuth(firebaseApp)
+  }
+}
+
+export const auth = app ? createAuth(app) : (null as unknown as Auth)
 export const db = app ? getFirestore(app) : (null as unknown as Firestore)
 export const storage = app ? getStorage(app) : (null as unknown as FirebaseStorage)
 

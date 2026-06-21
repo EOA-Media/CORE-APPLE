@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
+import type { User as FirebaseUser } from "firebase/auth"
 import { cn } from "@/lib/utils"
 import { Dumbbell, Clock, Flame, Award, Users, Mail, Lock, User, AlertCircle, Loader2, Sparkles, SlidersHorizontal } from "lucide-react"
 import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/authService"
@@ -273,7 +274,7 @@ export function OnboardingPage() {
     }
   }
 
-  async function finishWithAccount(fbUser: { uid: string; displayName: string | null; email: string | null }) {
+  async function finishWithAccount(fbUser: FirebaseUser) {
     if (!goal || !location || !level || !days || !recommendedPlan) {
       navigate("/")
       return
