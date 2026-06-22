@@ -21,7 +21,7 @@ import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, getDaysInMont
 import { getAppDate, getTodayString } from "@/lib/appDate"
 import type { WorkoutPlan } from "@/data/models"
 
-const DAY_LABELS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+const DAY_LABELS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"]
 const REST_DAY_OPTIONS = [
   { dayOfWeek: 1, label: "Monday", shortLabel: "MON" },
   { dayOfWeek: 2, label: "Tuesday", shortLabel: "TUE" },
@@ -151,8 +151,8 @@ export function PlanPage() {
   const selectedMonth = startOfMonth(selectedMonthDate)
   const monthLabel = format(selectedMonth, "MMMM yyyy")
   const daysInMonth = getDaysInMonth(selectedMonth)
-  // First day of month offset (Mon=0 ... Sun=6)
-  const firstDayOffset = (getDay(selectedMonth) + 6) % 7
+  // First day of month offset (Sun=0 ... Sat=6)
+  const firstDayOffset = getDay(selectedMonth)
   const canGoToPreviousMonth = isAfter(selectedMonth, accountCreatedMonth)
   const canGoToNextMonth = isBefore(selectedMonth, currentMonth)
   const monthStatsLabel = isSameMonth(selectedMonth, currentMonth) ? "This Month" : monthLabel
@@ -280,7 +280,7 @@ export function PlanPage() {
 
   // Build a fallback weekly schedule from plan + today
   const fallbackWeekly = useMemo<ScheduledWorkout[]>(() => {
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 })
+    const weekStart = startOfWeek(now, { weekStartsOn: 0 })
     return Array.from({ length: 7 }, (_, i) => {
       const date = new Date(weekStart)
       date.setDate(weekStart.getDate() + i)
@@ -333,8 +333,8 @@ export function PlanPage() {
         await withPlanTimeout(syncUserStatsFromSchedule(uid), "Sync user stats")
         await withPlanTimeout(syncUserStreakFromSchedule(uid), "Sync user streak")
 
-        const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
-        const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
+        const weekStart = format(startOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
+        const weekEnd = format(endOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
         const monthStart = format(selectedMonth, "yyyy-MM-dd")
         const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
 
@@ -367,7 +367,11 @@ export function PlanPage() {
     return () => { cancelled = true }
   }, [firebaseUser, isGuest, userDoc?.currentPlanId, today, selectedMonthDate])
 
-  const displayWeekly = liveWeekly ?? fallbackWeekly
+  const displayWeekly = useMemo(() => {
+    if (!liveWeekly) return fallbackWeekly
+    const liveByDate = new Map(liveWeekly.map((day) => [day.date, day]))
+    return fallbackWeekly.map((day) => liveByDate.get(day.date) ?? day)
+  }, [fallbackWeekly, liveWeekly])
   const monthStats = useMemo(() => computeMonthStats(liveMonthly ?? []), [liveMonthly])
 
   async function handleSelectPlan(planId: string) {
@@ -399,8 +403,8 @@ export function PlanPage() {
       await refreshUserDoc(firebaseUser)
       console.log("[PlanPage] plan activated and userDoc refreshed")
       // Reload calendar data after plan switch
-      const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
-      const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
+      const weekStart = format(startOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
+      const weekEnd = format(endOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
       const monthStart = format(selectedMonth, "yyyy-MM-dd")
       const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
       const [weekly, monthly] = await withPlanTimeout(
@@ -466,8 +470,8 @@ export function PlanPage() {
       )
       await refreshUserDoc(firebaseUser)
 
-      const weekStart = format(startOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
-      const weekEnd = format(endOfWeek(now, { weekStartsOn: 1 }), "yyyy-MM-dd")
+      const weekStart = format(startOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
+      const weekEnd = format(endOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
       const monthStart = format(selectedMonth, "yyyy-MM-dd")
       const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
       const [weekly, monthly] = await withPlanTimeout(
@@ -565,9 +569,10 @@ export function PlanPage() {
             </div>
           )}
               <div className="space-y-2.5">
-                {displayWeekly.map((day, index) => {
+                {displayWeekly.map((day) => {
                   const isToday = day.date === today
                   const workoutLabel = day.status === "rest" ? "Rest Day" : day.workoutName.replace(" Day", "")
+                  const weekdayLabel = format(new Date(`${day.date}T12:00:00`), "EEE").toUpperCase()
                   const dateLabel = format(new Date(`${day.date}T12:00:00`), "MMM d")
                   const exerciseCount = day.scheduledExercises?.length ?? getWorkoutForId(day.workoutId)?.exercises.length ?? 0
                   return (
@@ -580,7 +585,7 @@ export function PlanPage() {
                       )}
                     >
                       <div className={cn("w-12 shrink-0", isToday ? "text-[var(--gold)]" : "text-muted-foreground")}>
-                        <p className="text-xs font-bold">{DAY_LABELS[index]}</p>
+                        <p className="text-xs font-bold">{weekdayLabel}</p>
                       </div>
 
                       <div className="min-w-0 flex-1">
