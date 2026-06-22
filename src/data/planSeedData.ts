@@ -689,8 +689,139 @@ const GENERATED = GOALS.flatMap((goal) =>
   )
 )
 
-export const ALL_CORE_PLANS: WorkoutPlan[] = GENERATED.map(({ plan }) => plan)
-export const ALL_SEED_WORKOUTS: Workout[] = GENERATED.flatMap(({ workouts }) => workouts)
+const INCA_TRAIL_PLAN_ID = "plan-special-inca-trail-prep-30"
+
+const incaTrailWorkouts: Workout[] = [
+  {
+    id: "wk-special-inca-trail-monday-lower-body-durability",
+    name: "Lower Body Durability",
+    muscleGroups: ["Quads", "Glutes", "Calves", "Knees", "Mobility"],
+    estimatedMinutes: 55,
+    exercises: [
+      makeExercise(ex("ATG Split Squat", "Quads", "Bodyweight", 3, 10, 10, 60), "inca-mon-ex-1"),
+      makeExercise(ex("Step-Ups", "Quads", "Bodyweight", 3, 15, 15, 60), "inca-mon-ex-2"),
+      makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-mon-ex-3"),
+      makeExercise(ex("Single-Leg Calf Raises", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-mon-ex-4"),
+      makeExercise(ex("Patrick Step", "Knees", "Bodyweight", 3, 15, 15, 45), "inca-mon-ex-5"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-mon-ex-6"),
+      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-mon-ex-7"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-tuesday-trail-conditioning",
+    name: "Trail Conditioning",
+    muscleGroups: ["Cardio", "Calves", "Knees", "Mobility"],
+    estimatedMinutes: 45,
+    exercises: [
+      makeExercise(ex("Incline Treadmill or Stair Climber (W1 20m, W2 25m, W3 30m, W4 35m)", "Cardio", "Machine", 1, 20, 35, 0), "inca-tue-ex-1"),
+      makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 2, 25, 25, 45), "inca-tue-ex-2"),
+      makeExercise(ex("Knees-Over-Toes Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-tue-ex-3"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-wednesday-bulletproofing",
+    name: "Knee, Ankle & Hip Bulletproofing",
+    muscleGroups: ["Knees", "Ankles", "Hips", "Glutes", "Mobility"],
+    estimatedMinutes: 60,
+    exercises: [
+      makeExercise(ex("Backward Walking", "Knees", "Bodyweight", 1, 10, 10, 0), "inca-wed-ex-1"),
+      makeExercise(ex("ATG Split Squat", "Quads", "Bodyweight", 3, 10, 10, 60), "inca-wed-ex-2"),
+      makeExercise(ex("Patrick Step", "Knees", "Bodyweight", 3, 15, 15, 45), "inca-wed-ex-3"),
+      makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-wed-ex-4"),
+      makeExercise(ex("Single-Leg Calf Raise", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-wed-ex-5"),
+      makeExercise(ex("Glute Bridge", "Glutes", "Bodyweight", 3, 15, 15, 45), "inca-wed-ex-6"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-7"),
+      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-8"),
+      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-9"),
+      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-10"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-thursday-hiking-strength",
+    name: "Hiking Specific Strength",
+    muscleGroups: ["Quads", "Glutes", "Calves", "Knees", "Mobility"],
+    estimatedMinutes: 55,
+    exercises: [
+      makeExercise(ex("Walking Lunges", "Quads", "Bodyweight", 3, 20, 20, 60), "inca-thu-ex-1"),
+      makeExercise(ex("Step-Ups", "Quads", "Bodyweight", 4, 15, 15, 60), "inca-thu-ex-2"),
+      makeExercise(ex("ATG Split Squat", "Quads", "Bodyweight", 3, 10, 10, 60), "inca-thu-ex-3"),
+      makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-thu-ex-4"),
+      makeExercise(ex("Single-Leg Calf Raises", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-thu-ex-5"),
+      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-thu-ex-6"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-thu-ex-7"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-friday-recovery-mobility",
+    name: "Recovery Mobility Session",
+    muscleGroups: ["Mobility", "Recovery", "Hips", "Calves"],
+    estimatedMinutes: 30,
+    exercises: [
+      makeExercise(ex("Backward Walking", "Recovery", "Bodyweight", 1, 5, 5, 0), "inca-fri-ex-1"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-fri-ex-2"),
+      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-fri-ex-3"),
+      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-4"),
+      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-5"),
+      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, 60, 15), "inca-fri-ex-6"),
+      makeExercise(ex("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-7"),
+      makeExercise(ex("Child's Pose", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-8"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-saturday-long-hike",
+    name: "Long Hike Day",
+    muscleGroups: ["Cardio", "Hiking", "Calves", "Mobility"],
+    estimatedMinutes: 150,
+    exercises: [
+      makeExercise(ex("Long Hike (W1 60m, W2 90m, W3 120m, W4 150m)", "Cardio", "Outdoor", 1, 60, 150, 0), "inca-sat-ex-1"),
+      makeExercise(ex("Wear hiking shoes; prioritize hills; use a backpack if possible", "Hiking Rules", "Outdoor", 1, 1, 1, 0), "inca-sat-ex-2"),
+      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-3"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-4"),
+      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-5"),
+    ],
+  },
+  {
+    id: "wk-special-inca-trail-sunday-recovery-mobility",
+    name: "Recovery & Mobility",
+    muscleGroups: ["Recovery", "Mobility", "Hips", "Calves"],
+    estimatedMinutes: 45,
+    exercises: [
+      makeExercise(ex("Easy Walk", "Recovery", "Bodyweight", 1, 30, 30, 0), "inca-sun-ex-1"),
+      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, 60, 15), "inca-sun-ex-2"),
+      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-sun-ex-3"),
+      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-sun-ex-4"),
+      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-5"),
+      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-6"),
+      makeExercise(ex("Child's Pose", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-7"),
+      makeExercise(ex("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-8"),
+    ],
+  },
+]
+
+export const INCA_TRAIL_PLAN: WorkoutPlan = {
+  id: INCA_TRAIL_PLAN_ID,
+  name: "30-Day Inca Trail Preparation",
+  type: "core",
+  createdBy: "core",
+  experienceLevel: "intermediate",
+  location: "gym",
+  daysPerWeek: 7,
+  durationDays: 30,
+  goal: "Inca Trail Preparation",
+  schedule: [
+    { dayOfWeek: 0, workoutId: "wk-special-inca-trail-sunday-recovery-mobility", isRest: false },
+    { dayOfWeek: 1, workoutId: "wk-special-inca-trail-monday-lower-body-durability", isRest: false },
+    { dayOfWeek: 2, workoutId: "wk-special-inca-trail-tuesday-trail-conditioning", isRest: false },
+    { dayOfWeek: 3, workoutId: "wk-special-inca-trail-wednesday-bulletproofing", isRest: false },
+    { dayOfWeek: 4, workoutId: "wk-special-inca-trail-thursday-hiking-strength", isRest: false },
+    { dayOfWeek: 5, workoutId: "wk-special-inca-trail-friday-recovery-mobility", isRest: false },
+    { dayOfWeek: 6, workoutId: "wk-special-inca-trail-saturday-long-hike", isRest: false },
+  ],
+}
+
+export const SPECIAL_CORE_PLANS: WorkoutPlan[] = [INCA_TRAIL_PLAN]
+export const ALL_CORE_PLANS: WorkoutPlan[] = [...GENERATED.map(({ plan }) => plan), ...SPECIAL_CORE_PLANS]
+export const ALL_SEED_WORKOUTS: Workout[] = [...GENERATED.flatMap(({ workouts }) => workouts), ...incaTrailWorkouts]
 export const CORE_PROGRAM_MAPPINGS: CoreProgramMapping[] = GENERATED.map(({ mapping }) => mapping)
 
 export const DEFAULT_CORE_PLAN_ID = "plan-core-fitness-gym-beginner-3"

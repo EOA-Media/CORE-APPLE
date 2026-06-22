@@ -7,7 +7,7 @@ import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/a
 import { createUserDocument, updateUserDocument } from "@/services/userService"
 import { checkAndUnlockAchievements, initUserAchievements } from "@/services/achievementService"
 import { activatePlan } from "@/services/planService"
-import { ALL_CORE_PLANS, getCorePlanForOnboarding, getPlanById, getProgramReason, buildWorkoutNameMap } from "@/data/planSeedData"
+import { ALL_CORE_PLANS, SPECIAL_CORE_PLANS, getCorePlanForOnboarding, getPlanById, getProgramReason, buildWorkoutNameMap } from "@/data/planSeedData"
 import { useAuth } from "@/contexts/AuthContext"
 import { CoreLogo } from "@/components/core/CoreLogo"
 import { firebaseNetworkDiagnosticsConfig } from "@/lib/firebase"
@@ -187,11 +187,14 @@ export function OnboardingPage() {
     ? getRecommendedCorePlan(goal, location, level, days)
     : null
   const otherCorePlans = goal && location && level && days
-    ? ALL_CORE_PLANS.filter((plan) =>
-        plan.location === (location === "Home" ? "home" : "gym") &&
-        plan.experienceLevel === level.toLowerCase() &&
-        plan.daysPerWeek === days
-      )
+    ? [
+        ...ALL_CORE_PLANS.filter((plan) =>
+          plan.location === (location === "Home" ? "home" : "gym") &&
+          plan.experienceLevel === level.toLowerCase() &&
+          plan.daysPerWeek === days
+        ),
+        ...SPECIAL_CORE_PLANS,
+      ]
     : []
   const selectedCorePlan = selectedPlanId && selectedPlanId !== "custom"
     ? ALL_CORE_PLANS.find((plan) => plan.id === selectedPlanId) ?? null
