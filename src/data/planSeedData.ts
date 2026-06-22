@@ -1,4 +1,4 @@
-import type { Exercise, Workout, WorkoutPlan } from "./models"
+import type { Exercise, ExerciseTargetUnit, Workout, WorkoutPlan } from "./models"
 import { getAppDayOfWeek } from "@/lib/appDate"
 
 export type CoreGoal = "Build Muscle" | "Lose Weight" | "Stay Consistent" | "General Fitness"
@@ -19,6 +19,8 @@ interface ExerciseInput {
   repsMin: number
   repsMax: number
   restSeconds: number
+  targetUnit?: ExerciseTargetUnit
+  timedSeconds?: number
 }
 
 interface ProgramDefinition {
@@ -484,6 +486,28 @@ function ex(name: string, category: string, equipment: string, sets: number, rep
   return { name, category, equipment, sets, repsMin, repsMax, restSeconds }
 }
 
+function timedEx(
+  name: string,
+  category: string,
+  equipment: string,
+  sets: number,
+  amount: number,
+  targetUnit: "seconds" | "minutes",
+  restSeconds: number
+): ExerciseInput {
+  return {
+    name,
+    category,
+    equipment,
+    sets,
+    repsMin: amount,
+    repsMax: amount,
+    restSeconds,
+    targetUnit,
+    timedSeconds: targetUnit === "minutes" ? amount * 60 : amount,
+  }
+}
+
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
 }
@@ -507,6 +531,8 @@ function makeExercise(input: ExerciseInput, id: string): Exercise {
     repsMax: input.repsMax,
     restSeconds: input.restSeconds,
     defaultWeight: 0,
+    targetUnit: input.targetUnit,
+    timedSeconds: input.timedSeconds,
   }
 }
 
@@ -522,6 +548,7 @@ function jogExercise(durationMinutes: string, id: string): Exercise {
     repsMax: Number(maxRaw ?? minRaw),
     restSeconds: 0,
     defaultWeight: 0,
+    targetUnit: "minutes",
   }
 }
 
@@ -703,8 +730,8 @@ const incaTrailWorkouts: Workout[] = [
       makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-mon-ex-3"),
       makeExercise(ex("Single-Leg Calf Raises", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-mon-ex-4"),
       makeExercise(ex("Patrick Step", "Knees", "Bodyweight", 3, 15, 15, 45), "inca-mon-ex-5"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-mon-ex-6"),
-      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-mon-ex-7"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-mon-ex-6"),
+      makeExercise(timedEx("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-mon-ex-7"),
     ],
   },
   {
@@ -713,9 +740,9 @@ const incaTrailWorkouts: Workout[] = [
     muscleGroups: ["Cardio", "Calves", "Knees", "Mobility"],
     estimatedMinutes: 45,
     exercises: [
-      makeExercise(ex("Incline Treadmill or Stair Climber (W1 20m, W2 25m, W3 30m, W4 35m)", "Cardio", "Machine", 1, 20, 35, 0), "inca-tue-ex-1"),
+      makeExercise(timedEx("Incline Treadmill or Stair Climber", "Cardio", "Machine", 1, 20, "minutes", 0), "inca-tue-ex-1"),
       makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 2, 25, 25, 45), "inca-tue-ex-2"),
-      makeExercise(ex("Knees-Over-Toes Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-tue-ex-3"),
+      makeExercise(timedEx("Knees-Over-Toes Calf Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-tue-ex-3"),
     ],
   },
   {
@@ -724,16 +751,16 @@ const incaTrailWorkouts: Workout[] = [
     muscleGroups: ["Knees", "Ankles", "Hips", "Glutes", "Mobility"],
     estimatedMinutes: 60,
     exercises: [
-      makeExercise(ex("Backward Walking", "Knees", "Bodyweight", 1, 10, 10, 0), "inca-wed-ex-1"),
+      makeExercise(timedEx("Backward Walking", "Knees", "Bodyweight", 1, 10, "minutes", 0), "inca-wed-ex-1"),
       makeExercise(ex("ATG Split Squat", "Quads", "Bodyweight", 3, 10, 10, 60), "inca-wed-ex-2"),
       makeExercise(ex("Patrick Step", "Knees", "Bodyweight", 3, 15, 15, 45), "inca-wed-ex-3"),
       makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-wed-ex-4"),
       makeExercise(ex("Single-Leg Calf Raise", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-wed-ex-5"),
       makeExercise(ex("Glute Bridge", "Glutes", "Bodyweight", 3, 15, 15, 45), "inca-wed-ex-6"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-7"),
-      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-8"),
-      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-9"),
-      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-wed-ex-10"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-wed-ex-7"),
+      makeExercise(timedEx("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-wed-ex-8"),
+      makeExercise(timedEx("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-wed-ex-9"),
+      makeExercise(timedEx("Deep Squat Hold", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-wed-ex-10"),
     ],
   },
   {
@@ -747,8 +774,8 @@ const incaTrailWorkouts: Workout[] = [
       makeExercise(ex("ATG Split Squat", "Quads", "Bodyweight", 3, 10, 10, 60), "inca-thu-ex-3"),
       makeExercise(ex("Tibialis Raises", "Shins", "Bodyweight", 3, 25, 25, 45), "inca-thu-ex-4"),
       makeExercise(ex("Single-Leg Calf Raises", "Calves", "Bodyweight", 3, 20, 20, 45), "inca-thu-ex-5"),
-      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-thu-ex-6"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-thu-ex-7"),
+      makeExercise(timedEx("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-thu-ex-6"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-thu-ex-7"),
     ],
   },
   {
@@ -757,14 +784,14 @@ const incaTrailWorkouts: Workout[] = [
     muscleGroups: ["Mobility", "Recovery", "Hips", "Calves"],
     estimatedMinutes: 30,
     exercises: [
-      makeExercise(ex("Backward Walking", "Recovery", "Bodyweight", 1, 5, 5, 0), "inca-fri-ex-1"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-fri-ex-2"),
-      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-fri-ex-3"),
-      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-4"),
-      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-5"),
-      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, 60, 15), "inca-fri-ex-6"),
-      makeExercise(ex("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-7"),
-      makeExercise(ex("Child's Pose", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-fri-ex-8"),
+      makeExercise(timedEx("Backward Walking", "Recovery", "Bodyweight", 1, 5, "minutes", 0), "inca-fri-ex-1"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 90, "seconds", 15), "inca-fri-ex-2"),
+      makeExercise(timedEx("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, "seconds", 15), "inca-fri-ex-3"),
+      makeExercise(timedEx("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-fri-ex-4"),
+      makeExercise(timedEx("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-fri-ex-5"),
+      makeExercise(timedEx("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, "seconds", 15), "inca-fri-ex-6"),
+      makeExercise(timedEx("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-fri-ex-7"),
+      makeExercise(timedEx("Child's Pose", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-fri-ex-8"),
     ],
   },
   {
@@ -773,11 +800,10 @@ const incaTrailWorkouts: Workout[] = [
     muscleGroups: ["Cardio", "Hiking", "Calves", "Mobility"],
     estimatedMinutes: 150,
     exercises: [
-      makeExercise(ex("Long Hike (W1 60m, W2 90m, W3 120m, W4 150m)", "Cardio", "Outdoor", 1, 60, 150, 0), "inca-sat-ex-1"),
-      makeExercise(ex("Wear hiking shoes; prioritize hills; use a backpack if possible", "Hiking Rules", "Outdoor", 1, 1, 1, 0), "inca-sat-ex-2"),
-      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-3"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-4"),
-      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sat-ex-5"),
+      makeExercise(timedEx("Long Hike", "Cardio", "Outdoor", 1, 60, "minutes", 0), "inca-sat-ex-1"),
+      makeExercise(timedEx("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sat-ex-2"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sat-ex-3"),
+      makeExercise(timedEx("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sat-ex-4"),
     ],
   },
   {
@@ -786,14 +812,14 @@ const incaTrailWorkouts: Workout[] = [
     muscleGroups: ["Recovery", "Mobility", "Hips", "Calves"],
     estimatedMinutes: 45,
     exercises: [
-      makeExercise(ex("Easy Walk", "Recovery", "Bodyweight", 1, 30, 30, 0), "inca-sun-ex-1"),
-      makeExercise(ex("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, 60, 15), "inca-sun-ex-2"),
-      makeExercise(ex("Couch Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-sun-ex-3"),
-      makeExercise(ex("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, 90, 15), "inca-sun-ex-4"),
-      makeExercise(ex("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-5"),
-      makeExercise(ex("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-6"),
-      makeExercise(ex("Child's Pose", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-7"),
-      makeExercise(ex("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, 60, 15), "inca-sun-ex-8"),
+      makeExercise(timedEx("Easy Walk", "Recovery", "Bodyweight", 1, 30, "minutes", 0), "inca-sun-ex-1"),
+      makeExercise(timedEx("Deep Squat Hold", "Mobility", "Bodyweight", 3, 60, "seconds", 15), "inca-sun-ex-2"),
+      makeExercise(timedEx("Couch Stretch", "Mobility", "Bodyweight", 2, 90, "seconds", 15), "inca-sun-ex-3"),
+      makeExercise(timedEx("Standing Calf Stretch", "Mobility", "Bodyweight", 2, 90, "seconds", 15), "inca-sun-ex-4"),
+      makeExercise(timedEx("90/90 Hip Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sun-ex-5"),
+      makeExercise(timedEx("Butterfly Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sun-ex-6"),
+      makeExercise(timedEx("Child's Pose", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sun-ex-7"),
+      makeExercise(timedEx("Hamstring Stretch", "Mobility", "Bodyweight", 2, 60, "seconds", 15), "inca-sun-ex-8"),
     ],
   },
 ]

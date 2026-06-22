@@ -52,7 +52,11 @@ export interface Exercise {
   repsMax: number
   restSeconds: number
   defaultWeight: number
+  targetUnit?: ExerciseTargetUnit
+  timedSeconds?: number
 }
+
+export type ExerciseTargetUnit = "reps" | "seconds" | "minutes"
 
 // exerciseLibrary/{exerciseId}
 export interface ExerciseLibraryEntry {
@@ -104,6 +108,8 @@ export interface WorkoutExercise {
   repsMax: number
   restSeconds: number
   defaultWeight: number
+  targetUnit?: ExerciseTargetUnit
+  timedSeconds?: number
 }
 
 // ─── Workout Plan ─────────────────────────────────────────────────────────────
@@ -161,6 +167,8 @@ export interface ScheduledExercise {
   repsMax: number
   restSeconds: number
   targetWeight?: number
+  targetUnit?: ExerciseTargetUnit
+  timedSeconds?: number
 }
 
 // ─── Workout Session ──────────────────────────────────────────────────────────
@@ -189,6 +197,8 @@ export interface WorkoutSessionExercise {
   weightUsed: number
   weightUnit?: "lbs" | "kg"
   restSeconds: number
+  targetUnit?: ExerciseTargetUnit
+  timedSeconds?: number
   usedSetTimer: boolean
   setsCompleted: number
   elapsedSeconds?: number

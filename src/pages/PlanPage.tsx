@@ -514,6 +514,8 @@ export function PlanPage() {
           repsMax: exercise.repsMax,
           restSeconds: exercise.restSeconds,
           defaultWeight: exercise.targetWeight ?? 0,
+          targetUnit: exercise.targetUnit,
+          timedSeconds: exercise.timedSeconds,
         })),
       }
     }

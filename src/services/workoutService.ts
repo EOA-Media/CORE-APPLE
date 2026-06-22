@@ -28,6 +28,29 @@ import { getWorkoutById } from "@/data/planSeedData"
 import { addDays, format, subDays } from "date-fns"
 import { getAppDate, getTodayString } from "@/lib/appDate"
 
+const INCA_TRAIL_PLAN_ID = "plan-special-inca-trail-prep-30"
+const INCA_TRAIL_PROGRESSIONS: Record<string, number[]> = {
+  "inca-tue-ex-1": [20, 25, 30, 35],
+  "inca-sat-ex-1": [60, 90, 120, 150],
+}
+
+function applyIncaTrailProgression(exercise: ScheduledExercise, planId: string | undefined, dayIndex: number) {
+  if (planId !== INCA_TRAIL_PLAN_ID) return exercise
+
+  const weeklyDurations = INCA_TRAIL_PROGRESSIONS[exercise.exerciseId]
+  if (!weeklyDurations) return exercise
+
+  const weekIndex = Math.min(weeklyDurations.length - 1, Math.floor(dayIndex / 7))
+  const durationMinutes = weeklyDurations[weekIndex]
+  return {
+    ...exercise,
+    repsMin: durationMinutes,
+    repsMax: durationMinutes,
+    targetUnit: "minutes" as const,
+    timedSeconds: durationMinutes * 60,
+  }
+}
+
 async function resolveWorkoutById(workoutId: string): Promise<Workout | null> {
   const seedWorkout = getWorkoutById(workoutId)
   if (seedWorkout) return seedWorkout
@@ -132,17 +155,22 @@ export async function generateScheduledWorkouts(
       if (workout) {
         scheduled.muscleGroups = workout.muscleGroups
         scheduled.estimatedMinutes = workout.estimatedMinutes
-        scheduled.scheduledExercises = workout.exercises.map((ex): ScheduledExercise => ({
-          exerciseId: ex.id,
-          name: ex.name,
-          category: ex.category,
-          equipment: ex.equipment,
-          sets: ex.sets,
-          repsMin: ex.repsMin,
-          repsMax: ex.repsMax,
-          restSeconds: ex.restSeconds,
-          targetWeight: ex.defaultWeight,
-        }))
+        scheduled.scheduledExercises = workout.exercises.map((ex): ScheduledExercise => {
+          const scheduledExercise: ScheduledExercise = {
+            exerciseId: ex.id,
+            name: ex.name,
+            category: ex.category,
+            equipment: ex.equipment,
+            sets: ex.sets,
+            repsMin: ex.repsMin,
+            repsMax: ex.repsMax,
+            restSeconds: ex.restSeconds,
+            targetWeight: ex.defaultWeight,
+          }
+          if (ex.targetUnit) scheduledExercise.targetUnit = ex.targetUnit
+          if (ex.timedSeconds) scheduledExercise.timedSeconds = ex.timedSeconds
+          return applyIncaTrailProgression(scheduledExercise, entry.planId, i)
+        })
       }
     }
 

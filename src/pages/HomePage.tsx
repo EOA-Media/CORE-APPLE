@@ -342,6 +342,8 @@ export function HomePage() {
           repsMin: se.repsMin,
           repsMax: se.repsMax,
           completed: se.completed,
+          targetUnit: se.targetUnit,
+          timedSeconds: se.timedSeconds,
           // Look up category from the scheduled exercises list for icon rendering
           category: displayExercises.find(
             (ex) => ("exerciseId" in ex ? ex.exerciseId : ex.id) === se.exerciseId
@@ -354,6 +356,8 @@ export function HomePage() {
           repsMin: ex.repsMin,
           repsMax: ex.repsMax,
           category: ex.category ?? "",
+          targetUnit: ex.targetUnit,
+          timedSeconds: ex.timedSeconds,
           completed: isCompleted,
         }))
 
@@ -459,7 +463,7 @@ export function HomePage() {
                         className="hidden"
                         style={{ color: "rgba(235,235,245,0.32)" }}
                       >
-                        {exercise.sets} sets · {exercise.repsMin}–{exercise.repsMax} reps
+                        {exercise.sets} sets · {formatExerciseTarget(exercise)}
                       </p>
                     </div>
                   </div>
@@ -537,7 +541,7 @@ export function HomePage() {
                           </span>
                         </div>
                         <p className="mt-1.5 text-xs text-muted-foreground">
-                          {setsCompleted}/{exercise.sets} sets · {exercise.repsMin}–{exercise.repsMax} reps
+                          {setsCompleted}/{exercise.sets} sets · {formatExerciseTarget(exercise)}
                           {weightUsed !== undefined ? ` · ${weightUsed > 0 ? `${weightUsed}${weightUnit.toUpperCase()}` : "Bodyweight"}` : ""}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -643,7 +647,7 @@ export function HomePage() {
                         className="mt-0.5 text-[11px] font-medium"
                         style={{ color: "rgba(235,235,245,0.32)" }}
                       >
-                        {exercise.sets} sets · {exercise.repsMin}–{exercise.repsMax} reps
+                        {exercise.sets} sets · {formatExerciseTarget(exercise)}
                       </p>
                     </div>
                   </div>

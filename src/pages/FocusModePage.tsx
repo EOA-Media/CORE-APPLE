@@ -57,6 +57,8 @@ function workoutFromScheduledWorkout(sched: Awaited<ReturnType<typeof getSchedul
       repsMax: exercise.repsMax,
       restSeconds: exercise.restSeconds,
       defaultWeight: exercise.targetWeight ?? 0,
+      targetUnit: exercise.targetUnit,
+      timedSeconds: exercise.timedSeconds,
     })),
     planId: sched.planId,
   }
@@ -267,20 +269,26 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
         elapsedSeconds: summary.elapsedSeconds ?? 0,
         completionPercent: summary.completionPercent ?? 0,
         disciplinePointsEarned: summary.dpEarned ?? 0,
-        exercises: session.exerciseStates.map((es, i) => ({
-          exerciseId: workout.exercises[i]?.id ?? "",
-          name: workout.exercises[i]?.name ?? "",
-          completed: es.completed ?? false,
-          sets: workout.exercises[i]?.sets ?? 0,
-          repsMin: workout.exercises[i]?.repsMin ?? 0,
-          repsMax: workout.exercises[i]?.repsMax ?? 0,
-          weightUsed: es.weightUsed ?? 0,
-          weightUnit: es.weightUnit ?? "lbs",
-          restSeconds: workout.exercises[i]?.restSeconds ?? 0,
-          usedSetTimer: es.usedSetTimer ?? false,
-          setsCompleted: es.setsCompleted ?? 0,
-          elapsedSeconds: es.elapsedSeconds ?? 0,
-        })),
+        exercises: session.exerciseStates.map((es, i) => {
+          const exercise = workout.exercises[i]
+          const sessionExercise = {
+            exerciseId: exercise?.id ?? "",
+            name: exercise?.name ?? "",
+            completed: es.completed ?? false,
+            sets: exercise?.sets ?? 0,
+            repsMin: exercise?.repsMin ?? 0,
+            repsMax: exercise?.repsMax ?? 0,
+            weightUsed: es.weightUsed ?? 0,
+            weightUnit: es.weightUnit ?? "lbs",
+            restSeconds: exercise?.restSeconds ?? 0,
+            usedSetTimer: es.usedSetTimer ?? false,
+            setsCompleted: es.setsCompleted ?? 0,
+            elapsedSeconds: es.elapsedSeconds ?? 0,
+            ...(exercise?.targetUnit ? { targetUnit: exercise.targetUnit } : {}),
+            ...(exercise?.timedSeconds ? { timedSeconds: exercise.timedSeconds } : {}),
+          }
+          return sessionExercise
+        }),
       })
       console.log("[persistCompletion] session saved")
 
@@ -703,7 +711,7 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
                         {exercise.sets} sets - {formatExerciseTarget(exercise)} - {formatRestTime(exercise.restSeconds)} rest
                       </p>
                       <p className="hidden">
-                        {exercise.sets} sets · {exercise.repsMin}–{exercise.repsMax} reps · {formatRestTime(exercise.restSeconds)} rest
+                        {exercise.sets} sets · {formatExerciseTarget(exercise)} · {formatRestTime(exercise.restSeconds)} rest
                       </p>
                       <button
                         onClick={() => { setWeightEditIndex(index); setWeightInput(state.weightUsed > 0 ? String(state.weightUsed) : ""); setWeightUnitInput(state.weightUnit ?? "lbs") }}
@@ -1079,7 +1087,7 @@ export function FocusModePage() {
           const sched = await getScheduledWorkout(firebaseUser.uid, today)
           console.log("[FocusModePage] loaded scheduled workout:", sched?.workoutId, sched?.workoutName, "status:", sched?.status)
           if (sched?.workoutId) {
-            const wk = getWorkoutById(sched.workoutId) ?? workoutFromScheduledWorkout(sched)
+            const wk = workoutFromScheduledWorkout(sched) ?? getWorkoutById(sched.workoutId)
             if (wk) {
               console.log("[FocusModePage] resolved workout from schedule:", wk.name)
               setWorkout(wk); setLoading(false); return

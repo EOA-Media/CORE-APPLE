@@ -3,6 +3,8 @@ type ExerciseTimingInput = {
   category?: string
   repsMin: number
   repsMax: number
+  targetUnit?: "reps" | "seconds" | "minutes"
+  timedSeconds?: number
 }
 
 function normalizeName(name: string) {
@@ -21,16 +23,19 @@ const timedSecondExercises = new Set([
 ])
 
 export function isTimedExercise(exercise: ExerciseTimingInput) {
+  if (exercise.timedSeconds || exercise.targetUnit === "seconds" || exercise.targetUnit === "minutes") return true
   const name = normalizeName(exercise.name)
   return exercise.category?.toLowerCase() === "cardio" || name === "jog" || timedSecondExercises.has(name)
 }
 
 export function getTimedExerciseUnit(exercise: ExerciseTimingInput): "seconds" | "minutes" {
+  if (exercise.targetUnit === "seconds" || exercise.targetUnit === "minutes") return exercise.targetUnit
   const name = normalizeName(exercise.name)
   return exercise.category?.toLowerCase() === "cardio" || name === "jog" ? "minutes" : "seconds"
 }
 
 export function getTimedExerciseSeconds(exercise: ExerciseTimingInput) {
+  if (exercise.timedSeconds) return Math.max(1, exercise.timedSeconds)
   const unit = getTimedExerciseUnit(exercise)
   return Math.max(1, exercise.repsMin) * (unit === "minutes" ? 60 : 1)
 }
