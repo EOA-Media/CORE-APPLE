@@ -42,6 +42,7 @@ export function getTimedExerciseSeconds(exercise: ExerciseTimingInput) {
 
 export function formatExerciseTarget(exercise: ExerciseTimingInput) {
   if (!isTimedExercise(exercise)) {
+    if (exercise.repsMin === exercise.repsMax) return `${exercise.repsMin} reps`
     return `${exercise.repsMin}-${exercise.repsMax} reps`
   }
 
