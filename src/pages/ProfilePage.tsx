@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { Capacitor } from "@capacitor/core"
-import { Flame, Dumbbell, Award, TrendingUp, Calendar, Clock, Crown, UserPen, Bell, Shield, Palette, HelpCircle, LogOut, ChevronRight, Loader2, Check, AlertCircle, Users, UserMinus, Camera, Trash2 } from "lucide-react"
+import { Flame, Dumbbell, Award, TrendingUp, Calendar, Clock, Crown, UserPen, Bell, LogOut, ChevronRight, Loader2, Check, AlertCircle, Users, UserMinus, Camera, Trash2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { RankBadge } from "@/components/core/RankBadge"
 import { AchievementCard } from "@/components/core/AchievementCard"
@@ -194,7 +194,7 @@ export function ProfilePage() {
   function makeDownloadToken() {
     if ("randomUUID" in crypto) return crypto.randomUUID()
     const values = new Uint8Array(16)
-    crypto.getRandomValues(values)
+    window.crypto.getRandomValues(values)
     values[6] = (values[6] & 0x0f) | 0x40
     values[8] = (values[8] & 0x3f) | 0x80
     return Array.from(values, (value, index) => {
@@ -435,9 +435,6 @@ export function ProfilePage() {
   const SETTINGS_ITEMS: { icon: typeof UserPen; label: string; destructive?: boolean; loading?: boolean; onClick?: () => void }[] = [
     { icon: UserPen, label: "Edit Profile", onClick: openEditProfile },
     { icon: Bell, label: notificationLoading ? "Setting up..." : "Notifications", onClick: handleEnableNotifications },
-    { icon: Shield, label: "Privacy" },
-    { icon: Palette, label: "Appearance" },
-    { icon: HelpCircle, label: "Help" },
     ...(isGuest ? [] : [{ icon: Trash2, label: "Delete Account", destructive: true, loading: deleteAccountLoading, onClick: () => {
       setDeleteAccountError("")
       setShowDeleteAccountConfirm(true)
