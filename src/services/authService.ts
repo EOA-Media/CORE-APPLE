@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   OAuthProvider,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -126,4 +127,15 @@ export async function signInWithApple(): Promise<FirebaseUser> {
 
 export async function signOutUser(): Promise<void> {
   await signOut(auth)
+}
+
+export async function deleteAuthAccount(user: FirebaseUser): Promise<void> {
+  console.log("[AuthService] deleteUser starting:", { uid: user.uid })
+  try {
+    await deleteUser(user)
+    console.log("[AuthService] deleteUser succeeded:", { uid: user.uid })
+  } catch (error) {
+    console.error("[AuthService] deleteUser failed:", error)
+    throw toEmailAuthError(error, "auth/delete-account-failed")
+  }
 }

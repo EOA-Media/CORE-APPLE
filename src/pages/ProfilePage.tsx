@@ -1,18 +1,19 @@
 import { useEffect, useRef, useState } from "react"
-import { Flame, Dumbbell, Award, TrendingUp, Calendar, Clock, Crown, UserPen, Bell, Shield, Palette, HelpCircle, LogOut, ChevronRight, Loader2, Check, AlertCircle, Users, UserMinus, Camera } from "lucide-react"
+import { Flame, Dumbbell, Award, TrendingUp, Calendar, Clock, Crown, UserPen, Bell, Shield, Palette, HelpCircle, LogOut, ChevronRight, Loader2, Check, AlertCircle, Users, UserMinus, Camera, Trash2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { RankBadge } from "@/components/core/RankBadge"
 import { AchievementCard } from "@/components/core/AchievementCard"
 import { ProgressBar } from "@/components/core/ProgressBar"
 import { getRankFromDP, ranks } from "@/data/helpers"
 import { useAuth } from "@/contexts/AuthContext"
-import { updateUserDocument } from "@/services/userService"
+import { deleteUserDocument, updateUserDocument } from "@/services/userService"
+import { deleteAuthAccount } from "@/services/authService"
 import { markMissedWorkouts, syncUserStatsFromSchedule, syncUserStreakFromSchedule } from "@/services/workoutService"
 import { getFriends, removeFriend } from "@/services/friendService"
 import { checkAndUnlockAchievements, getUserAchievements } from "@/services/achievementService"
 import type { Achievement, Friend } from "@/data/models"
 import { storage } from "@/lib/firebase"
-import { getDownloadURL, ref, uploadBytes } from "firebase/storage"
+import { deleteObject, getDownloadURL, ref, uploadBytes } from "firebase/storage"
 import { requestWorkoutReminderPushNotifications } from "@/services/pushNotificationService"
 import {
   Dialog,
@@ -45,6 +46,9 @@ export function ProfilePage() {
   const [notificationMessage, setNotificationMessage] = useState("")
 
   const [logoutLoading, setLogoutLoading] = useState(false)
+  const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false)
+  const [deleteAccountLoading, setDeleteAccountLoading] = useState(false)
+  const [deleteAccountError, setDeleteAccountError] = useState("")
   const photoInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -213,6 +217,68 @@ export function ProfilePage() {
     }
   }
 
+  function getFirebaseErrorMessage(error: unknown, fallback: string) {
+    if (error instanceof Error) {
+      const code = "code" in error && typeof error.code === "string" ? error.code : ""
+      return code ? `${code}: ${error.message}` : error.message
+    }
+
+    return fallback
+  }
+
+  async function deleteProfilePhoto(photoUrl: string) {
+    if (!photoUrl) return
+
+    try {
+      await deleteObject(ref(storage, photoUrl))
+      console.log("[ProfilePage] profile photo deleted")
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? error.code : undefined
+      if (code === "storage/object-not-found") {
+        console.warn("[ProfilePage] profile photo was already missing:", error)
+        return
+      }
+      console.error("[ProfilePage] failed to delete profile photo:", error)
+      throw error
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (!firebaseUser || isGuest) return
+
+    setDeleteAccountLoading(true)
+    setDeleteAccountError("")
+
+    const userId = firebaseUser.uid
+    const profilePhotoUrl = userDoc?.photoURL ?? firebaseUser.photoURL ?? ""
+
+    try {
+      console.log("[ProfilePage] delete account starting:", { userId })
+      await deleteProfilePhoto(profilePhotoUrl)
+      await deleteUserDocument(userId)
+      await deleteAuthAccount(firebaseUser)
+
+      try {
+        await signOut()
+      } catch (error) {
+        console.warn("[ProfilePage] sign out after account deletion failed:", error)
+      }
+
+      setShowDeleteAccountConfirm(false)
+      navigate("/onboarding", { replace: true })
+    } catch (error) {
+      console.error("[ProfilePage] delete account failed:", error)
+      const message = getFirebaseErrorMessage(error, "Failed to delete account. Please try again.")
+      setDeleteAccountError(
+        message.includes("auth/requires-recent-login")
+          ? `${message}. Please log out, sign back in, and try deleting your account again.`
+          : message
+      )
+    } finally {
+      setDeleteAccountLoading(false)
+    }
+  }
+
   async function handleEnableNotifications() {
     if (!firebaseUser || isGuest) return
     setNotificationLoading(true)
@@ -234,13 +300,17 @@ export function ProfilePage() {
     }
   }
 
-  const SETTINGS_ITEMS: { icon: typeof UserPen; label: string; destructive?: boolean; onClick?: () => void }[] = [
+  const SETTINGS_ITEMS: { icon: typeof UserPen; label: string; destructive?: boolean; loading?: boolean; onClick?: () => void }[] = [
     { icon: UserPen, label: "Edit Profile", onClick: openEditProfile },
     { icon: Bell, label: notificationLoading ? "Setting up..." : "Notifications", onClick: handleEnableNotifications },
     { icon: Shield, label: "Privacy" },
     { icon: Palette, label: "Appearance" },
     { icon: HelpCircle, label: "Help" },
-    { icon: LogOut, label: logoutLoading ? "Logging out..." : "Logout", destructive: true, onClick: handleLogout },
+    ...(isGuest ? [] : [{ icon: Trash2, label: "Delete Account", destructive: true, loading: deleteAccountLoading, onClick: () => {
+      setDeleteAccountError("")
+      setShowDeleteAccountConfirm(true)
+    } }]),
+    { icon: LogOut, label: logoutLoading ? "Logging out..." : "Logout", destructive: true, loading: logoutLoading, onClick: handleLogout },
   ]
 
   return (
@@ -420,11 +490,11 @@ export function ProfilePage() {
             <button
               key={item.label}
               onClick={item.onClick}
-              disabled={logoutLoading && item.destructive}
+              disabled={item.loading}
               className="flex w-full items-center gap-3.5 px-5 py-4 text-left transition-all duration-250 hover:bg-accent active:scale-[0.98] disabled:opacity-50"
               style={index < SETTINGS_ITEMS.length - 1 ? { borderBottom: '1px solid var(--glass-border)' } : undefined}
             >
-              {item.destructive && logoutLoading
+              {item.loading
                 ? <Loader2 className="size-4 animate-spin text-destructive" strokeWidth={1.5} />
                 : <item.icon
                     className={item.destructive ? "size-4 text-destructive" : "size-4 text-muted-foreground"}
@@ -658,6 +728,46 @@ export function ProfilePage() {
                 className="glow-gold flex-1 rounded-2xl bg-[var(--gold)] py-3.5 text-sm font-bold text-[var(--gold-foreground)] transition-all disabled:opacity-60"
               >
                 {editLoading ? <Loader2 className="mx-auto size-4 animate-spin" /> : "Save"}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Account Confirmation */}
+      <Dialog open={showDeleteAccountConfirm} onOpenChange={(open) => {
+        if (!deleteAccountLoading) setShowDeleteAccountConfirm(open)
+      }}>
+        <DialogContent className="max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle className="text-foreground">Delete Account</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              This permanently deletes your account, profile, and profile photo.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {deleteAccountError && (
+              <div className="flex items-center gap-2 rounded-2xl border border-destructive/20 bg-destructive/10 px-4 py-3">
+                <AlertCircle className="size-4 shrink-0 text-destructive" strokeWidth={1.5} />
+                <p className="text-xs text-destructive">{deleteAccountError}</p>
+              </div>
+            )}
+
+            <div className="flex gap-2.5 pt-1">
+              <button
+                onClick={() => setShowDeleteAccountConfirm(false)}
+                disabled={deleteAccountLoading}
+                className="glass flex-1 rounded-2xl py-3.5 text-sm font-semibold text-foreground transition-all disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteAccountLoading}
+                className="flex-1 rounded-2xl bg-destructive py-3.5 text-sm font-bold text-destructive-foreground transition-all disabled:opacity-60"
+              >
+                {deleteAccountLoading ? <Loader2 className="mx-auto size-4 animate-spin" /> : "Delete"}
               </button>
             </div>
           </div>

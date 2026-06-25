@@ -1,5 +1,6 @@
 import {
   doc,
+  deleteDoc,
   setDoc,
   getDoc,
   getDocs,
@@ -158,6 +159,18 @@ export async function updateUserDocument(
     await updateDoc(userRef, { ...data, updatedAt: serverTimestamp() })
   } catch (error) {
     logFirestoreFailure("updateUserDocument", { userId, fields: Object.keys(data) }, error)
+    throw error
+  }
+}
+
+export async function deleteUserDocument(userId: string): Promise<void> {
+  const userRef = doc(db, "users", userId)
+  try {
+    console.log("[Firestore] deleteUserDocument starting:", { userId })
+    await deleteDoc(userRef)
+    console.log("[Firestore] deleteUserDocument succeeded:", { userId })
+  } catch (error) {
+    logFirestoreFailure("deleteUserDocument", { userId }, error)
     throw error
   }
 }
