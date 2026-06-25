@@ -3,14 +3,13 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import type { User as FirebaseUser } from "firebase/auth"
 import { cn } from "@/lib/utils"
 import { Dumbbell, Clock, Flame, Award, Users, Mail, Lock, User, AlertCircle, Loader2, Sparkles, SlidersHorizontal } from "lucide-react"
-import { signUpWithEmail, signInWithEmail, signInWithGoogle } from "@/services/authService"
+import { signUpWithEmail, signInWithEmail, signInWithGoogle, signInWithApple } from "@/services/authService"
 import { createUserDocument, updateUserDocument } from "@/services/userService"
 import { checkAndUnlockAchievements, initUserAchievements } from "@/services/achievementService"
 import { activatePlan } from "@/services/planService"
 import { ALL_CORE_PLANS, SPECIAL_CORE_PLANS, getCorePlanForOnboarding, getPlanById, getProgramReason, buildWorkoutNameMap } from "@/data/planSeedData"
 import { useAuth } from "@/contexts/AuthContext"
 import { CoreLogo } from "@/components/core/CoreLogo"
-import { firebaseNetworkDiagnosticsConfig } from "@/lib/firebase"
 
 type Goal = "Build Muscle" | "Lose Weight" | "Stay Consistent" | "General Fitness"
 type Location = "Gym" | "Home"
@@ -18,8 +17,6 @@ type Level = "Beginner" | "Intermediate" | "Advanced"
 type Days = 2 | 3 | 4 | 5 | 6
 type AuthTab = "signup" | "signin"
 const ACCOUNT_SETUP_TIMEOUT_MS = 45000
-const FIREBASE_DIAGNOSTIC_TIMEOUT_MS = 30000
-const FIREBASE_DIAGNOSTIC_PROJECT_ID = "core-6a386"
 
 interface RecommendedPlan {
   id: string
@@ -27,12 +24,6 @@ interface RecommendedPlan {
   daysPerWeek: number
   estimatedMinutes: number
   reason: string
-}
-
-interface FirebaseDiagnosticResult {
-  label: string
-  status: string
-  body: string
 }
 
 function toDisplayedError(error: unknown, fallbackCode: string, fallbackMessage: string) {
@@ -83,46 +74,6 @@ function withOnboardingTimeout<T>(promise: Promise<T>, label: string, code: stri
   })
 }
 
-function formatDiagnosticError(error: unknown) {
-  if (error instanceof Error) {
-    return error.stack || error.message
-  }
-  return String(error)
-}
-
-async function fetchFirebaseDiagnostic(
-  label: string,
-  url: string,
-  init?: RequestInit
-): Promise<FirebaseDiagnosticResult> {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), FIREBASE_DIAGNOSTIC_TIMEOUT_MS)
-
-  try {
-    console.log(`[FirebaseDiagnostics] ${label} fetch starting`)
-    const response = await fetch(url, { ...init, signal: controller.signal })
-    const body = await response.text()
-    console.log(`[FirebaseDiagnostics] ${label} fetch finished:`, { status: response.status, body })
-    return {
-      label,
-      status: `${response.status} ${response.statusText}`,
-      body: body || "(empty response)",
-    }
-  } catch (error) {
-    const body = error instanceof DOMException && error.name === "AbortError"
-      ? `Fetch timed out after ${FIREBASE_DIAGNOSTIC_TIMEOUT_MS / 1000} seconds`
-      : formatDiagnosticError(error)
-    console.error(`[FirebaseDiagnostics] ${label} fetch failed:`, error)
-    return {
-      label,
-      status: "fetch error",
-      body,
-    }
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
 function OptionButton({ selected, children, onClick }: { selected: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
     <button
@@ -161,6 +112,17 @@ function GoogleIcon() {
   )
 }
 
+function AppleIcon() {
+  return (
+    <svg className="size-4" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="currentColor"
+        d="M16.7 12.7c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9s-2-.9-3.2-.8c-1.7 0-3.2 1-4.1 2.5-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.5 1.3-.1 1.8-.8 3.4-.8s2 .8 3.4.8c1.4 0 2.3-1.2 3.1-2.5 1-1.4 1.4-2.8 1.5-2.9-.1 0-2.8-1.1-2.8-4.3ZM14.4 5.5c.7-.8 1.2-2 1.1-3.1-1 .1-2.2.7-2.9 1.5-.7.8-1.2 1.9-1.1 3 1.1.1 2.2-.6 2.9-1.4Z"
+      />
+    </svg>
+  )
+}
+
 export function OnboardingPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -180,8 +142,6 @@ export function OnboardingPage() {
   const [authPassword, setAuthPassword] = useState("")
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState("")
-  const [diagnosticLoading, setDiagnosticLoading] = useState(false)
-  const [diagnosticResults, setDiagnosticResults] = useState<FirebaseDiagnosticResult[]>([])
 
   const recommendedPlan = goal && location && level && days
     ? getRecommendedCorePlan(goal, location, level, days)
@@ -392,44 +352,20 @@ export function OnboardingPage() {
     }
   }
 
-  async function runFirebaseDiagnostics() {
-    setDiagnosticLoading(true)
-    setDiagnosticResults([])
-    const apiKey = firebaseNetworkDiagnosticsConfig.apiKey
-
+  async function handleAppleAuth() {
+    setAuthLoading(true)
+    setAuthError("")
     try {
-      const results: FirebaseDiagnosticResult[] = []
-
-      if (!apiKey) {
-        results.push({
-          label: "Identity Toolkit signInWithPassword",
-          status: "missing api key",
-          body: "VITE_FIREBASE_API_KEY/FIREBASE_API_KEY is not present in the built app.",
-        })
-      } else {
-        results.push(await fetchFirebaseDiagnostic(
-          "Identity Toolkit signInWithPassword",
-          `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(apiKey)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: "diagnostic@example.com",
-              password: "diagnostic-password",
-              returnSecureToken: true,
-            }),
-          }
-        ))
+      const fbUser = await signInWithApple()
+      await finishWithAccount(fbUser)
+    } catch (err: unknown) {
+      const code = getErrorCode(err)
+      const msg = err instanceof Error ? err.message : ""
+      if (!code.includes("cancel") && !msg.toLowerCase().includes("cancel")) {
+        setAuthError(toDisplayedError(err, "auth/apple-sign-in-failed", "Apple sign-in failed"))
       }
-
-      results.push(await fetchFirebaseDiagnostic(
-        "Firestore documents list",
-        `https://firestore.googleapis.com/v1/projects/${FIREBASE_DIAGNOSTIC_PROJECT_ID}/databases/(default)/documents`
-      ))
-
-      setDiagnosticResults(results)
     } finally {
-      setDiagnosticLoading(false)
+      setAuthLoading(false)
     }
   }
 
@@ -777,31 +713,14 @@ export function OnboardingPage() {
               Continue with Google
             </button>
 
-            <div className="space-y-3">
-              <button
-                onClick={runFirebaseDiagnostics}
-                disabled={diagnosticLoading}
-                className="glass-subtle flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-xs font-semibold text-muted-foreground transition-all duration-250 disabled:opacity-60 active:scale-[0.97]"
-              >
-                {diagnosticLoading && <Loader2 className="size-3.5 animate-spin" />}
-                Run Firebase Network Test
-              </button>
-
-              {diagnosticResults.length > 0 && (
-                <div className="space-y-2 rounded-2xl border border-border/60 bg-secondary/30 p-3">
-                  {diagnosticResults.map((result) => (
-                    <div key={result.label} className="space-y-1">
-                      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        {result.label}: {result.status}
-                      </p>
-                      <pre className="max-h-28 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed text-muted-foreground">
-                        {result.body}
-                      </pre>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              onClick={handleAppleAuth}
+              disabled={authLoading}
+              className="glass flex w-full items-center justify-center gap-2.5 rounded-2xl py-3.5 text-sm font-semibold text-foreground transition-all duration-250 disabled:opacity-60 hover:border-[var(--gold)]/30 active:scale-[0.97]"
+            >
+              <AppleIcon />
+              Continue with Apple
+            </button>
 
           </div>
         )}
