@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { Capacitor } from "@capacitor/core"
 import { Flame, Dumbbell, Award, TrendingUp, Calendar, Clock, Crown, UserPen, Bell, Shield, Palette, HelpCircle, LogOut, ChevronRight, Loader2, Check, AlertCircle, Users, UserMinus, Camera, Trash2 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { RankBadge } from "@/components/core/RankBadge"
@@ -22,6 +23,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog"
+
+const PROFILE_SAVE_TIMEOUT_MS = 45000
 
 export function ProfilePage() {
   const navigate = useNavigate()
@@ -178,6 +181,132 @@ export function ProfilePage() {
     setEditPhotoPreview(URL.createObjectURL(file))
   }
 
+  function getStorageBucketName() {
+    const bucket = storage.app.options.storageBucket
+    if (!bucket) {
+      throw Object.assign(new Error("Firebase Storage bucket is missing from configuration."), {
+        code: "storage/missing-bucket",
+      })
+    }
+    return bucket
+  }
+
+  function makeDownloadToken() {
+    if ("randomUUID" in crypto) return crypto.randomUUID()
+    const values = new Uint8Array(16)
+    crypto.getRandomValues(values)
+    values[6] = (values[6] & 0x0f) | 0x40
+    values[8] = (values[8] & 0x3f) | 0x80
+    return Array.from(values, (value, index) => {
+      const part = value.toString(16).padStart(2, "0")
+      return [4, 6, 8, 10].includes(index) ? `-${part}` : part
+    }).join("")
+  }
+
+  function withProfileSaveTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        const error = Object.assign(
+          new Error(`${label} timed out after ${PROFILE_SAVE_TIMEOUT_MS / 1000} seconds`),
+          { code: "profile/save-timeout" }
+        )
+        console.error(`[ProfilePage] ${label} timed out:`, error)
+        reject(error)
+      }, PROFILE_SAVE_TIMEOUT_MS)
+
+      promise
+        .then(resolve, reject)
+        .finally(() => window.clearTimeout(timeout))
+    })
+  }
+
+  async function uploadProfilePhotoWithRest(file: File, storagePath: string) {
+    const bucket = getStorageBucketName()
+    const token = makeDownloadToken()
+    const idToken = await withProfileSaveTimeout(firebaseUser!.getIdToken(), "get auth token for profile photo upload")
+    const boundary = `core-profile-photo-${Date.now()}`
+    const metadata = {
+      name: storagePath,
+      contentType: file.type || "image/jpeg",
+      metadata: {
+        firebaseStorageDownloadTokens: token,
+      },
+    }
+    const body = new Blob([
+      `--${boundary}\r\n`,
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n",
+      JSON.stringify(metadata),
+      `\r\n--${boundary}\r\n`,
+      `Content-Type: ${file.type || "image/jpeg"}\r\n\r\n`,
+      file,
+      `\r\n--${boundary}--`,
+    ])
+
+    console.log("[ProfilePage] uploading profile photo with Firebase Storage REST:", {
+      bucket,
+      storagePath,
+      size: file.size,
+      type: file.type,
+    })
+
+    const response = await withProfileSaveTimeout(
+      fetch(
+        `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o?uploadType=multipart&name=${encodeURIComponent(storagePath)}`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${idToken}`,
+            "Content-Type": `multipart/related; boundary=${boundary}`,
+          },
+          body,
+        }
+      ),
+      "upload profile photo"
+    )
+    const responseText = await response.text()
+
+    if (!response.ok) {
+      console.error("[ProfilePage] Firebase Storage REST upload failed:", {
+        status: response.status,
+        statusText: response.statusText,
+        body: responseText,
+      })
+      throw Object.assign(new Error(responseText || response.statusText), {
+        code: `storage/http-${response.status}`,
+      })
+    }
+
+    console.log("[ProfilePage] Firebase Storage REST upload succeeded:", {
+      status: response.status,
+      body: responseText,
+    })
+
+    return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(storagePath)}?alt=media&token=${token}`
+  }
+
+  async function uploadProfilePhoto(file: File) {
+    const extension = file.name.split(".").pop() || "jpg"
+    const storagePath = `users/${firebaseUser!.uid}/profile-picture.${extension}`
+
+    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios") {
+      return uploadProfilePhotoWithRest(file, storagePath)
+    }
+
+    console.log("[ProfilePage] uploading profile photo with Firebase Storage SDK:", {
+      storagePath,
+      size: file.size,
+      type: file.type,
+    })
+    const imageRef = ref(storage, storagePath)
+    await withProfileSaveTimeout(
+      uploadBytes(imageRef, file, { contentType: file.type || "image/jpeg" }),
+      "upload profile photo"
+    )
+    const downloadURL = await withProfileSaveTimeout(getDownloadURL(imageRef), "get profile photo download URL")
+    console.log("[ProfilePage] Firebase Storage SDK upload succeeded:", { storagePath })
+    return downloadURL
+  }
+
   async function handleSaveProfile() {
     if (!userDoc || !firebaseUser) return
     if (!editName.trim()) { setEditError("Display name is required"); return }
@@ -186,23 +315,26 @@ export function ProfilePage() {
     try {
       let nextPhotoURL = userDoc.photoURL
       if (editPhotoFile) {
-        const extension = editPhotoFile.name.split(".").pop() || "jpg"
-        const imageRef = ref(storage, `users/${firebaseUser.uid}/profile-picture.${extension}`)
-        await uploadBytes(imageRef, editPhotoFile, { contentType: editPhotoFile.type })
-        nextPhotoURL = await getDownloadURL(imageRef)
+        nextPhotoURL = await uploadProfilePhoto(editPhotoFile)
       }
 
-      await updateUserDocument(firebaseUser.uid, {
-        displayName: editName.trim(),
-        username: editUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, "") || userDoc.username,
-        preferredWorkoutTime: editTime,
-        photoURL: nextPhotoURL,
-      })
-      await refreshUserDoc()
+      console.log("[ProfilePage] saving profile document:", { uid: firebaseUser.uid, hasPhotoURL: !!nextPhotoURL })
+      await withProfileSaveTimeout(
+        updateUserDocument(firebaseUser.uid, {
+          displayName: editName.trim(),
+          username: editUsername.trim().toLowerCase().replace(/[^a-z0-9_]/g, "") || userDoc.username,
+          preferredWorkoutTime: editTime,
+          photoURL: nextPhotoURL,
+        }),
+        "save profile document"
+      )
+      await withProfileSaveTimeout(refreshUserDoc(), "refresh profile after save")
+      console.log("[ProfilePage] profile saved successfully:", { uid: firebaseUser.uid })
       setEditSuccess(true)
       setTimeout(() => setShowEditProfile(false), 800)
-    } catch {
-      setEditError("Failed to save profile. Please try again.")
+    } catch (error) {
+      console.error("[ProfilePage] failed to save profile:", error)
+      setEditError(getFirebaseErrorMessage(error, "Failed to save profile. Please try again."))
     } finally {
       setEditLoading(false)
     }
