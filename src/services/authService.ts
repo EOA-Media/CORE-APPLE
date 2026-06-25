@@ -24,6 +24,7 @@ function toEmailAuthError(error: unknown, fallbackCode = "auth/unknown"): EmailA
   return Object.assign(new Error(String(error)), { code: fallbackCode })
 }
 
+const AUTH_PROVIDER_TIMEOUT_MS = 45000
 const APPLE_CLIENT_ID = "com.corefitness.app"
 const APPLE_REDIRECT_URI = "https://core-6a386.firebaseapp.com/__/auth/handler"
 
@@ -42,6 +43,23 @@ async function sha256(value: string) {
 
 function getAppleDisplayName(response: { givenName: string | null; familyName: string | null }) {
   return [response.givenName, response.familyName].filter(Boolean).join(" ").trim()
+}
+
+function withAuthTimeout<T>(promise: Promise<T>, label: string, code: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      const timeoutError = Object.assign(
+        new Error(`${label} timed out after ${AUTH_PROVIDER_TIMEOUT_MS / 1000} seconds`),
+        { code }
+      )
+      console.error(`[AuthService] ${label} timed out:`, timeoutError)
+      reject(timeoutError)
+    }, AUTH_PROVIDER_TIMEOUT_MS)
+
+    promise
+      .then(resolve, reject)
+      .finally(() => window.clearTimeout(timeout))
+  })
 }
 
 export async function signUpWithEmail(
@@ -74,9 +92,37 @@ export async function signInWithEmail(email: string, password: string): Promise<
 }
 
 export async function signInWithGoogle(): Promise<FirebaseUser> {
-  const { browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup } = await import("firebase/auth")
-  const credential = await signInWithPopup(auth, new GoogleAuthProvider(), browserPopupRedirectResolver)
-  return credential.user
+  console.log("[AuthService] Sign in with Google starting")
+  try {
+    const { browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup, signInWithRedirect } = await import("firebase/auth")
+    const provider = new GoogleAuthProvider()
+    provider.addScope("email")
+    provider.addScope("profile")
+
+    if (Capacitor.getPlatform() === "ios") {
+      console.log("[AuthService] Sign in with Google using redirect on iOS")
+      await withAuthTimeout(
+        signInWithRedirect(auth, provider),
+        "signInWithGoogleRedirect",
+        "auth/google-timeout"
+      )
+      throw Object.assign(
+        new Error("Google sign-in redirected. Return to CORE after completing Google sign-in."),
+        { code: "auth/google-redirect-started" }
+      )
+    }
+
+    const credential = await withAuthTimeout(
+      signInWithPopup(auth, provider, browserPopupRedirectResolver),
+      "signInWithGoogle",
+      "auth/google-timeout"
+    )
+    console.log("[AuthService] Sign in with Google succeeded:", { uid: credential.user.uid })
+    return credential.user
+  } catch (error) {
+    console.error("[AuthService] Sign in with Google failed:", error)
+    throw toEmailAuthError(error, "auth/google-sign-in-failed")
+  }
 }
 
 export async function signInWithApple(): Promise<FirebaseUser> {

@@ -126,7 +126,7 @@ function AppleIcon() {
 export function OnboardingPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const { firebaseUser, isGuest, refreshUserDoc } = useAuth()
+  const { firebaseUser, userDoc, mode, isGuest, refreshUserDoc } = useAuth()
   const isChangePlanMode = searchParams.get("mode") === "change-plan" && !!firebaseUser && !isGuest
 
   const [step, setStep] = useState(isChangePlanMode ? 1 : 0)
@@ -164,6 +164,17 @@ export function OnboardingPage() {
     : selectedCorePlan?.name ?? recommendedPlan?.name ?? "your plan"
 
   const goNext = () => setStep((s) => s + 1)
+
+  useEffect(() => {
+    if (isChangePlanMode || authLoading) return
+    if (mode === "authenticated" && userDoc?.currentPlanId) {
+      console.log("[Onboarding] Authenticated user has active plan; leaving onboarding:", {
+        uid: firebaseUser?.uid,
+        currentPlanId: userDoc.currentPlanId,
+      })
+      navigate("/", { replace: true })
+    }
+  }, [authLoading, firebaseUser, isChangePlanMode, mode, navigate, userDoc])
 
   useEffect(() => {
     if (step !== 5) return
@@ -307,6 +318,30 @@ export function OnboardingPage() {
     navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
   }
 
+  async function finishProviderSignIn(fbUser: FirebaseUser, providerName: "Apple" | "Google") {
+    console.log(`[Onboarding] ${providerName} sign-in succeeded; refreshing profile:`, { uid: fbUser.uid })
+    const profile = await refreshUserDoc(fbUser)
+
+    if (profile?.currentPlanId) {
+      console.log(`[Onboarding] ${providerName} user has active plan; navigating home:`, {
+        uid: fbUser.uid,
+        currentPlanId: profile.currentPlanId,
+      })
+      navigate("/", { replace: true })
+      return
+    }
+
+    if (goal && location && level && days && recommendedPlan) {
+      console.log(`[Onboarding] ${providerName} user needs plan setup; finishing onboarding:`, { uid: fbUser.uid })
+      await finishWithAccount(fbUser)
+      return
+    }
+
+    console.log(`[Onboarding] ${providerName} user needs onboarding answers:`, { uid: fbUser.uid })
+    setStep(0)
+    navigate("/onboarding", { replace: true })
+  }
+
   async function handleEmailAuth() {
     if (!authEmail || !authPassword) return
     setAuthLoading(true)
@@ -341,11 +376,15 @@ export function OnboardingPage() {
     setAuthError("")
     try {
       const fbUser = await signInWithGoogle()
-      await finishWithAccount(fbUser)
+      await finishProviderSignIn(fbUser, "Google")
     } catch (err: unknown) {
+      console.error("[Onboarding] Google authentication failed:", err)
+      const code = getErrorCode(err)
       const msg = err instanceof Error ? err.message : ""
-      if (!msg.includes("popup-closed")) {
-        setAuthError("Google sign-in failed. Please try again.")
+      if (code === "auth/google-redirect-started") {
+        setAuthError("Google sign-in opened. Return to CORE after completing Google sign-in.")
+      } else if (!msg.includes("popup-closed") && !code.includes("cancel")) {
+        setAuthError(toDisplayedError(err, "auth/google-sign-in-failed", "Google sign-in failed"))
       }
     } finally {
       setAuthLoading(false)
@@ -357,7 +396,7 @@ export function OnboardingPage() {
     setAuthError("")
     try {
       const fbUser = await signInWithApple()
-      await finishWithAccount(fbUser)
+      await finishProviderSignIn(fbUser, "Apple")
     } catch (err: unknown) {
       const code = getErrorCode(err)
       const msg = err instanceof Error ? err.message : ""

@@ -19,7 +19,7 @@ interface AuthContextValue {
   isGuest: boolean
   setGuestMode: () => void
   signOut: () => Promise<void>
-  refreshUserDoc: (authUser?: FirebaseUser | null) => Promise<void>
+  refreshUserDoc: (authUser?: FirebaseUser | null) => Promise<User | null>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  async function loadUserDoc(fbUser: FirebaseUser) {
+  async function loadUserDoc(fbUser: FirebaseUser): Promise<User | null> {
     console.log("[Auth] Loading Firestore profile:", fbUser.uid)
     try {
       const doc = await withTimeout(
@@ -90,20 +90,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!doc) {
         setUserDoc(null)
         setMode("onboarding")
-        return
+        return null
       }
 
       if (doc.workoutReminderHour === undefined) {
         const defaults = getDefaultWorkoutReminderSettings()
+        const nextDoc = { ...doc, ...defaults }
         saveWorkoutReminderSettings(fbUser.uid, defaults).catch((error) => {
           console.warn("[Auth] Failed to save default reminder settings:", error)
         })
-        setUserDoc({ ...doc, ...defaults })
+        setUserDoc(nextDoc)
+        setMode("authenticated")
+        return nextDoc
       } else {
         setUserDoc(doc)
       }
 
       setMode("authenticated")
+      return doc
     } catch (error) {
       console.error("[Auth] Firestore profile load failed; keeping Firebase Auth session active:", {
         uid: fbUser.uid,
@@ -114,16 +118,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserDoc(null)
       setStartupError("We couldn't load your CORE profile, but your account is signed in.")
       setMode("authenticated")
+      return null
     }
   }
 
-  async function refreshUserDoc(authUser: FirebaseUser | null = firebaseUser) {
+  async function refreshUserDoc(authUser: FirebaseUser | null = firebaseUser): Promise<User | null> {
     if (authUser) {
       console.log("[Auth] Refreshing Firestore profile:", authUser.uid)
       setFirebaseUser(authUser)
       isGuestRef.current = false
-      await loadUserDoc(authUser)
+      return await loadUserDoc(authUser)
     }
+    return null
   }
 
   function setGuestMode() {
