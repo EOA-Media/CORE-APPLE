@@ -38,13 +38,23 @@ workflows:
         script: npx cap sync ios
 
       - name: Set up code signing
-        script: xcode-project use-profiles
+        script: |
+          app-store-connect fetch-signing-files com.corefitness.app \
+            --type IOS_APP_STORE \
+            --create
+          keychain initialize
+          keychain add-certificates
+          xcode-project use-profiles
 
       - name: Build IPA
         script: |
           xcode-project build-ipa \
             --workspace ios/App/App.xcworkspace \
-            --scheme App
+            --scheme App || {
+              echo "=== Xcode archive failed. Recent xcodebuild logs: ==="
+              find /tmp/xcodebuild_logs -maxdepth 1 -type f -name "*.log" -print -exec tail -n 200 {} \;
+              exit 1
+            }
 
     artifacts:
       - build/ios/ipa/*.ipa
