@@ -1,6 +1,7 @@
 import {
   createUserWithEmailAndPassword,
   deleteUser,
+  GoogleAuthProvider,
   OAuthProvider,
   signInWithEmailAndPassword,
   signInWithCredential,
@@ -27,6 +28,8 @@ function toEmailAuthError(error: unknown, fallbackCode = "auth/unknown"): EmailA
 const AUTH_PROVIDER_TIMEOUT_MS = 45000
 const APPLE_CLIENT_ID = "com.corefitness.app"
 const APPLE_REDIRECT_URI = "https://core-6a386.firebaseapp.com/__/auth/handler"
+const GOOGLE_IOS_CLIENT_ID = "943386614924-8etsul3n1o7s2l12pq20egba93s9s4am.apps.googleusercontent.com"
+let googleNativeInitialized = false
 
 function randomNonce(length = 32) {
   const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-._"
@@ -94,24 +97,54 @@ export async function signInWithEmail(email: string, password: string): Promise<
 export async function signInWithGoogle(): Promise<FirebaseUser> {
   console.log("[AuthService] Sign in with Google starting")
   try {
-    const { browserPopupRedirectResolver, GoogleAuthProvider, signInWithPopup, signInWithRedirect } = await import("firebase/auth")
+    if (Capacitor.getPlatform() === "ios") {
+      console.log("[AuthService] Sign in with Google using native iOS token flow")
+      const { SocialLogin } = await import("@capgo/capacitor-social-login")
+
+      if (!googleNativeInitialized) {
+        await SocialLogin.initialize({
+          google: {
+            iOSClientId: GOOGLE_IOS_CLIENT_ID,
+            mode: "online",
+          },
+        })
+        googleNativeInitialized = true
+      }
+
+      const nativeResult = await withAuthTimeout(
+        SocialLogin.login({
+          provider: "google",
+          options: {
+            scopes: ["email", "profile"],
+            forcePrompt: true,
+          },
+        }),
+        "nativeGoogleSignIn",
+        "auth/google-timeout"
+      )
+
+      const idToken = nativeResult.result.responseType === "online" ? nativeResult.result.idToken : null
+      const accessToken = nativeResult.result.responseType === "online" ? nativeResult.result.accessToken?.token ?? null : null
+      if (!idToken && !accessToken) {
+        throw Object.assign(new Error("Google did not return an ID token or access token."), {
+          code: "auth/google-no-token",
+        })
+      }
+
+      const firebaseCredential = GoogleAuthProvider.credential(idToken, accessToken)
+      const credential = await withAuthTimeout(
+        signInWithCredential(auth, firebaseCredential),
+        "signInWithGoogleCredential",
+        "auth/google-firebase-timeout"
+      )
+      console.log("[AuthService] Sign in with Google native iOS succeeded:", { uid: credential.user.uid })
+      return credential.user
+    }
+
+    const { browserPopupRedirectResolver, signInWithPopup } = await import("firebase/auth")
     const provider = new GoogleAuthProvider()
     provider.addScope("email")
     provider.addScope("profile")
-
-    if (Capacitor.getPlatform() === "ios") {
-      console.log("[AuthService] Sign in with Google using redirect on iOS")
-      await withAuthTimeout(
-        signInWithRedirect(auth, provider),
-        "signInWithGoogleRedirect",
-        "auth/google-timeout"
-      )
-      throw Object.assign(
-        new Error("Google sign-in redirected. Return to CORE after completing Google sign-in."),
-        { code: "auth/google-redirect-started" }
-      )
-    }
-
     const credential = await withAuthTimeout(
       signInWithPopup(auth, provider, browserPopupRedirectResolver),
       "signInWithGoogle",
