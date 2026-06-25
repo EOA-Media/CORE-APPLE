@@ -39,17 +39,8 @@ workflows:
 
       - name: Set up code signing
         script: |
-          rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision
-          rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/"*.mobileprovision
-          app-store-connect fetch-signing-files com.corefitness.app \
-            --type IOS_APP_STORE \
-            --strict-match-identifier \
-            --create
-          keychain initialize
-          keychain add-certificates
           xcode-project use-profiles \
             --archive-method app-store \
-            --profile "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/"*.mobileprovision \
             --code-signing-setup-verbose-logging
 
       - name: Build IPA
