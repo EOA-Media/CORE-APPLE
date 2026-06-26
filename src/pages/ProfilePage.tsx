@@ -220,6 +220,60 @@ export function ProfilePage() {
     })
   }
 
+  async function createLocalProfilePhotoURL(file: File) {
+    const objectUrl = URL.createObjectURL(file)
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const img = new Image()
+      img.onload = () => resolve(img)
+      img.onerror = () => reject(Object.assign(new Error("Could not read the selected profile photo."), {
+        code: "profile/photo-read-failed",
+      }))
+      img.src = objectUrl
+    })
+
+    try {
+      let fallback = ""
+      for (const maxDimension of [512, 384, 256]) {
+        const sourceWidth = image.naturalWidth || image.width
+        const sourceHeight = image.naturalHeight || image.height
+        const scale = Math.min(1, maxDimension / Math.max(sourceWidth, sourceHeight))
+        const width = Math.max(1, Math.round(sourceWidth * scale))
+        const height = Math.max(1, Math.round(sourceHeight * scale))
+        const canvas = document.createElement("canvas")
+        canvas.width = width
+        canvas.height = height
+        const context = canvas.getContext("2d")
+        if (!context) {
+          throw Object.assign(new Error("Could not prepare the selected profile photo."), {
+            code: "profile/photo-canvas-failed",
+          })
+        }
+        context.drawImage(image, 0, 0, width, height)
+
+        for (const quality of [0.82, 0.72, 0.62, 0.52]) {
+          const dataUrl = canvas.toDataURL("image/jpeg", quality)
+          fallback = dataUrl
+          if (dataUrl.length < 700_000) {
+            console.log("[ProfilePage] prepared local profile photo fallback:", {
+              width,
+              height,
+              quality,
+              bytes: dataUrl.length,
+            })
+            return dataUrl
+          }
+        }
+      }
+
+      console.warn("[ProfilePage] local profile photo fallback is larger than target:", {
+        bytes: fallback.length,
+      })
+      return fallback
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }
+
   async function uploadProfilePhotoWithRest(file: File, storagePath: string) {
     const bucket = getStorageBucketName()
     const token = makeDownloadToken()
@@ -289,7 +343,15 @@ export function ProfilePage() {
     const storagePath = `users/${firebaseUser!.uid}/profile-picture.${extension}`
 
     if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === "ios") {
-      return uploadProfilePhotoWithRest(file, storagePath)
+      try {
+        return await uploadProfilePhotoWithRest(file, storagePath)
+      } catch (error) {
+        console.warn("[ProfilePage] Firebase Storage upload failed on iOS; saving compressed local profile photo:", error)
+        return await withProfileSaveTimeout(
+          createLocalProfilePhotoURL(file),
+          "prepare local profile photo"
+        )
+      }
     }
 
     console.log("[ProfilePage] uploading profile photo with Firebase Storage SDK:", {
@@ -360,6 +422,7 @@ export function ProfilePage() {
 
   async function deleteProfilePhoto(photoUrl: string) {
     if (!photoUrl) return
+    if (photoUrl.startsWith("data:")) return
 
     try {
       await deleteObject(ref(storage, photoUrl))
