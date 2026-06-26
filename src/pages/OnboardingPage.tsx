@@ -250,13 +250,20 @@ export function OnboardingPage() {
 
   async function finishWithAccount(fbUser: FirebaseUser) {
     if (!goal || !location || !level || !days || !recommendedPlan) {
-      navigate("/")
+      navigate("/", { replace: true })
       return
     }
     const finalPlanId = selectedPlanId ?? recommendedPlan.id
     const finalPlan = finalPlanId === "custom" ? null : getPlanById(finalPlanId)
-    console.log("[Onboarding] Auth user created; starting non-blocking Firestore setup:", { uid: fbUser.uid })
+    const destination = finalPlanId === "custom" ? "/custom-plan-builder" : "/"
+    console.log("[Onboarding] Auth user created; navigating immediately and starting Firestore setup:", {
+      uid: fbUser.uid,
+      destination,
+    })
     setAuthLoading(false)
+    navigate(destination, { replace: true })
+
+    void (async () => {
     try {
       await withOnboardingTimeout(
         createUserDocument(fbUser.uid, fbUser.displayName ?? "Athlete", fbUser.email ?? "", {
@@ -294,7 +301,7 @@ export function OnboardingPage() {
       await refreshUserDoc(fbUser)
       console.log("[Onboarding] Firestore profile setup succeeded:", { uid: fbUser.uid })
     } catch (error) {
-      console.error("[Onboarding] Firestore setup failed after Auth success; continuing signup:", {
+      console.error("[Onboarding] Firestore setup failed after Auth success:", {
         uid: fbUser.uid,
         finalPlanId,
         error: getDetailedError(error),
@@ -310,16 +317,14 @@ export function OnboardingPage() {
           rawError: refreshError,
         })
       }
-      setAuthLoading(false)
-      navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
-      return
     }
-    setAuthLoading(false)
-    navigate(finalPlanId === "custom" ? "/custom-plan-builder" : "/")
+    })()
   }
 
   async function finishProviderSignIn(fbUser: FirebaseUser, providerName: "Apple" | "Google") {
-    console.log(`[Onboarding] ${providerName} sign-in succeeded; refreshing profile:`, { uid: fbUser.uid })
+    console.log(`[Onboarding] ${providerName} sign-in succeeded; navigating home and refreshing profile:`, { uid: fbUser.uid })
+    setAuthLoading(false)
+    navigate("/", { replace: true })
     const profile = await refreshUserDoc(fbUser)
 
     if (profile?.currentPlanId) {
@@ -338,8 +343,6 @@ export function OnboardingPage() {
     }
 
     console.log(`[Onboarding] ${providerName} user needs onboarding answers:`, { uid: fbUser.uid })
-    setStep(0)
-    navigate("/onboarding", { replace: true })
   }
 
   async function handleEmailAuth() {
@@ -353,8 +356,15 @@ export function OnboardingPage() {
         await finishWithAccount(fbUser)
       } else {
         const fbUser = await signInWithEmail(authEmail, authPassword)
-        await refreshUserDoc(fbUser)
-        navigate("/")
+        setAuthLoading(false)
+        navigate("/", { replace: true })
+        void refreshUserDoc(fbUser).catch((error) => {
+          console.error("[Onboarding] Profile refresh failed after email sign-in:", {
+            uid: fbUser.uid,
+            error: getDetailedError(error),
+            rawError: error,
+          })
+        })
       }
     } catch (err: unknown) {
       console.error("[Onboarding] Email authentication failed:", err)

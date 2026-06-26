@@ -89,7 +89,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!doc) {
         setUserDoc(null)
-        setMode("onboarding")
+        setMode("authenticated")
         return null
       }
 
