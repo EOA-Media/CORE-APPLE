@@ -15,7 +15,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext"
 import { generateScheduledWorkouts, getScheduledWorkouts } from "@/services/workoutService"
 import { calculateConsistencyFromSchedule, markMissedWorkouts, syncUserStatsFromSchedule, syncUserStreakFromSchedule } from "@/services/workoutService"
-import { activatePlan, buildPlanScheduleEntries, getAutoRestDays, getCustomPlansForUser, getPlan, getWorkoutsForPlan, updatePlanRestDays } from "@/services/planService"
+import { activatePlan, buildPlanScheduleEntries, generateUniquePlanShareCode, getAutoRestDays, getCustomPlansForUser, getPlan, getWorkoutsForPlan, importCustomPlanFromShareCode, normalizePlanShareCode, savePlan, updatePlanRestDays } from "@/services/planService"
 import { DEFAULT_CORE_PLAN_ID, getPlanById, buildWorkoutNameMap, ALL_CORE_PLANS, getWorkoutById } from "@/data/planSeedData"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, getDaysInMonth, getDay, addDays, addMonths, subMonths, isBefore, isAfter, isSameMonth } from "date-fns"
 import { getAppDate, getTodayString } from "@/lib/appDate"
@@ -148,6 +148,9 @@ export function PlanPage() {
   const [selectedRestDays, setSelectedRestDays] = useState<number[]>([])
   const [savingRestDays, setSavingRestDays] = useState(false)
   const [switchingPlan, setSwitchingPlan] = useState(false)
+  const [importingPlan, setImportingPlan] = useState(false)
+  const [shareCodeInput, setShareCodeInput] = useState("")
+  const [shareCodeStatus, setShareCodeStatus] = useState("")
   const [liveWeekly, setLiveWeekly] = useState<ScheduledWorkout[] | null>(null)
   const [liveMonthly, setLiveMonthly] = useState<ScheduledWorkout[] | null>(null)
   const [loadingData, setLoadingData] = useState(false)
@@ -235,6 +238,46 @@ export function PlanPage() {
   useEffect(() => {
     if (showRestDays) setSelectedRestDays(currentRestDays)
   }, [showRestDays, currentRestDays])
+
+  useEffect(() => {
+    if (!showChangePlan) {
+      setShareCodeInput("")
+      setShareCodeStatus("")
+    }
+  }, [showChangePlan])
+
+  useEffect(() => {
+    if (isGuest || !firebaseUser || currentPlan.type !== "custom" || currentPlan.shareCode) return
+    if (currentPlan.createdBy !== firebaseUser.uid) return
+
+    let cancelled = false
+    async function ensureShareCode() {
+      try {
+        const shareCode = await withPlanTimeout(generateUniquePlanShareCode(), "Plan code creation")
+        const workouts = await withPlanTimeout(getWorkoutsForPlan(currentPlan.id), "Custom plan workouts load")
+        const updatedPlan = {
+          ...currentPlan,
+          shareCode,
+          sharedWorkouts: workouts.length > 0 ? workouts : currentPlan.sharedWorkouts,
+        }
+        await withPlanTimeout(savePlan(updatedPlan), "Plan code save")
+        if (!cancelled) {
+          setRemotePlan(updatedPlan)
+          setSavedCustomPlans((plans) => plans.map((plan) => (
+            plan.id === updatedPlan.id ? updatedPlan : plan
+          )))
+        }
+      } catch (err) {
+        console.error("[PlanPage] failed to create custom plan share code:", err)
+        if (!cancelled) {
+          setPlanLoadError(getPlanPageErrorMessage(err, "firestore/share-code-create-failed", "Plan code creation failed"))
+        }
+      }
+    }
+
+    ensureShareCode()
+    return () => { cancelled = true }
+  }, [currentPlan, firebaseUser, isGuest])
 
   useEffect(() => {
     if (isGuest || !firebaseUser) {
@@ -559,6 +602,59 @@ export function PlanPage() {
     }
   }
 
+  async function handleImportPlanCode() {
+    if (!firebaseUser || isGuest || importingPlan) return
+    const code = normalizePlanShareCode(shareCodeInput)
+    if (!code) {
+      setShareCodeStatus("Enter a custom plan code.")
+      return
+    }
+
+    setImportingPlan(true)
+    setShareCodeStatus("")
+    setPlanLoadError("")
+    try {
+      console.log("[PlanPage] importing custom plan from share code:", code)
+      const importedPlan = await withPlanTimeout(
+        importCustomPlanFromShareCode(firebaseUser.uid, code),
+        "Custom plan import"
+      )
+      await refreshUserDoc(firebaseUser)
+      setRemotePlan(importedPlan)
+      setSavedCustomPlans((plans) => [
+        importedPlan,
+        ...plans.filter((plan) => plan.id !== importedPlan.id),
+      ])
+      setShareCodeInput("")
+      setShareCodeStatus(`Imported ${importedPlan.name}.`)
+      setShowChangePlan(false)
+
+      const weekStart = format(startOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
+      const weekEnd = format(endOfWeek(now, { weekStartsOn: 0 }), "yyyy-MM-dd")
+      const monthStart = format(selectedMonth, "yyyy-MM-dd")
+      const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
+      const [weekly, monthly] = await withPlanTimeout(
+        Promise.all([
+          getScheduledWorkouts(firebaseUser.uid, weekStart, weekEnd),
+          getScheduledWorkouts(firebaseUser.uid, monthStart, monthEnd),
+        ]),
+        "Workout calendar reload"
+      )
+      setLiveWeekly(normalizePastScheduled(weekly, today).filter((day) => (
+        !day.planId || day.planId === importedPlan.id
+      )))
+      setLiveMonthly(normalizePastScheduled(monthly, today).filter((day) => (
+        !day.planId || day.planId === importedPlan.id
+      )))
+      console.log("[PlanPage] custom plan imported and activated:", importedPlan.id)
+    } catch (err) {
+      console.error("[PlanPage] custom plan import failed:", err)
+      setShareCodeStatus(getPlanPageErrorMessage(err, "custom-plan/import-failed", "Custom plan import failed"))
+    } finally {
+      setImportingPlan(false)
+    }
+  }
+
   function toggleRestDay(dayOfWeek: number) {
     if (dayOfWeek === protectedRestDay || savingRestDays) return
     setSelectedRestDays((days) => {
@@ -876,6 +972,14 @@ export function PlanPage() {
             <span>{remainingPlanDays} days left</span>
           </div>
         </div>
+        {currentPlan.type === "custom" && currentPlan.shareCode && (
+          <div className="mt-3 rounded-2xl border border-border bg-secondary/20 px-4 py-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Plan Code</span>
+              <span className="font-mono text-sm font-bold text-[var(--gold)]">{currentPlan.shareCode}</span>
+            </div>
+          </div>
+        )}
         <button
           onClick={() => setShowChangePlan(true)}
           disabled={switchingPlan}
@@ -1061,6 +1165,36 @@ export function PlanPage() {
             <p className="text-xs text-muted-foreground">
               Changing plans will reset your future workout schedule but will not delete past workout history.
             </p>
+            {!isGuest && firebaseUser && (
+              <div className="glass-subtle rounded-2xl px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Use Plan Code</p>
+                <div className="mt-3 flex gap-2">
+                  <input
+                    type="text"
+                    value={shareCodeInput}
+                    onChange={(event) => setShareCodeInput(normalizePlanShareCode(event.target.value))}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleImportPlanCode()
+                    }}
+                    placeholder="Enter code"
+                    maxLength={8}
+                    disabled={importingPlan}
+                    className="min-w-0 flex-1 rounded-xl border border-border bg-background/50 px-3 py-2 text-sm font-semibold uppercase text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-[var(--gold)]/40 disabled:opacity-50"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleImportPlanCode}
+                    disabled={importingPlan || !normalizePlanShareCode(shareCodeInput)}
+                    className="rounded-xl border border-[var(--gold)]/30 bg-[var(--gold)] px-4 py-2 text-sm font-bold text-[var(--gold-foreground)] transition-all duration-250 active:scale-[0.97] disabled:opacity-50"
+                  >
+                    {importingPlan ? <Loader2 className="size-4 animate-spin" /> : "Add"}
+                  </button>
+                </div>
+                {shareCodeStatus && (
+                  <p className="mt-2 text-xs text-muted-foreground">{shareCodeStatus}</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2.5">
               <button
                 onClick={() => setShowChangePlan(false)}

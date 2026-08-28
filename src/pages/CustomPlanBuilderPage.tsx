@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { exerciseLibrary, CATEGORIES, EQUIPMENT_LIST, type LibraryExercise } from "@/data/exerciseLibrary"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { useAuth } from "@/contexts/AuthContext"
-import { activatePlan, saveWorkout } from "@/services/planService"
+import { activatePlan, generateUniquePlanShareCode, saveWorkout } from "@/services/planService"
 import type { Exercise, Workout, WorkoutPlan } from "@/data/models"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -855,6 +855,8 @@ export function CustomPlanBuilderPage() {
         location: location.toLowerCase() as WorkoutPlan["location"],
         daysPerWeek: workoutDays.length,
         goal: "Custom",
+        shareCode: await generateUniquePlanShareCode(),
+        sharedWorkouts: workouts,
         schedule: days.map((day) => ({
           dayOfWeek: day.dayOfWeek,
           workoutId: day.type === "workout" ? workoutByDay.get(day.dayOfWeek)?.id ?? null : null,

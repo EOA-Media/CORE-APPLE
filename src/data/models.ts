@@ -126,6 +126,9 @@ export interface WorkoutPlan {
   durationDays?: number
   goal: string
   schedule: WorkoutPlanDay[]
+  shareCode?: string
+  sharedFromPlanId?: string
+  sharedWorkouts?: Workout[]
   createdAt?: string
   updatedAt?: string
 }

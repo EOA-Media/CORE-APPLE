@@ -6,6 +6,7 @@ import {
   getDocs,
   query,
   where,
+  limit,
   serverTimestamp,
 } from "firebase/firestore"
 import { db } from "@/lib/firebase"
@@ -17,6 +18,18 @@ import { getAppDate } from "@/lib/appDate"
 
 // ─── Plans ────────────────────────────────────────────────────────────────────
 
+const SHARE_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+export function normalizePlanShareCode(code: string): string {
+  return code.trim().toUpperCase().replace(/[^A-Z0-9]/g, "")
+}
+
+function makePlanShareCode(): string {
+  return Array.from({ length: 8 }, () => (
+    SHARE_CODE_CHARS[Math.floor(Math.random() * SHARE_CODE_CHARS.length)]
+  )).join("")
+}
+
 export async function savePlan(plan: WorkoutPlan): Promise<void> {
   const ref = doc(db, "workoutPlans", plan.id)
   await setDoc(ref, { ...plan, updatedAt: serverTimestamp() }, { merge: true })
@@ -27,6 +40,33 @@ export async function getPlan(planId: string): Promise<WorkoutPlan | null> {
   const snap = await getDoc(ref)
   if (!snap.exists()) return null
   return snap.data() as WorkoutPlan
+}
+
+export async function getCustomPlanByShareCode(code: string): Promise<WorkoutPlan | null> {
+  const normalizedCode = normalizePlanShareCode(code)
+  if (!normalizedCode) return null
+
+  const q = query(
+    collection(db, "workoutPlans"),
+    where("shareCode", "==", normalizedCode),
+    limit(1)
+  )
+  const snap = await getDocs(q)
+  const plan = snap.docs[0]?.data() as WorkoutPlan | undefined
+  return plan?.type === "custom" ? plan : null
+}
+
+export async function generateUniquePlanShareCode(): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = makePlanShareCode()
+    const existing = await getCustomPlanByShareCode(code)
+    if (!existing) return code
+  }
+
+  throw Object.assign(
+    new Error("Could not create a unique plan share code. Please try again."),
+    { code: "firestore/share-code-collision" }
+  )
 }
 
 export async function getCorePlans(): Promise<WorkoutPlan[]> {
@@ -66,6 +106,73 @@ export async function getWorkoutsForPlan(planId: string): Promise<Workout[]> {
   const q = query(collection(db, "workouts"), where("planId", "==", planId))
   const snap = await getDocs(q)
   return snap.docs.map((d) => d.data() as Workout)
+}
+
+export async function importCustomPlanFromShareCode(
+  userId: string,
+  code: string
+): Promise<WorkoutPlan> {
+  const shareCode = normalizePlanShareCode(code)
+  if (shareCode.length < 4) {
+    throw Object.assign(
+      new Error("Enter a valid custom plan code."),
+      { code: "custom-plan/invalid-share-code" }
+    )
+  }
+
+  const sharedPlan = await getCustomPlanByShareCode(shareCode)
+  if (!sharedPlan) {
+    throw Object.assign(
+      new Error("No custom plan was found for that code."),
+      { code: "custom-plan/share-code-not-found" }
+    )
+  }
+
+  let sharedWorkouts = sharedPlan.sharedWorkouts ?? []
+  if (sharedWorkouts.length === 0) {
+    sharedWorkouts = await getWorkoutsForPlan(sharedPlan.id)
+  }
+  if (sharedWorkouts.length === 0) {
+    throw Object.assign(
+      new Error("This custom plan does not have any workouts to import."),
+      { code: "custom-plan/share-code-empty" }
+    )
+  }
+
+  const nowIso = new Date().toISOString()
+  const importedPlanId = `custom-${userId}-${Date.now()}`
+  const workoutIdMap = new Map<string, string>()
+  const importedWorkouts = sharedWorkouts.map((workout, index) => {
+    const workoutId = `${importedPlanId}-${index + 1}`
+    workoutIdMap.set(workout.id, workoutId)
+    return {
+      ...workout,
+      id: workoutId,
+      planId: importedPlanId,
+    }
+  })
+  const workoutMap = Object.fromEntries(importedWorkouts.map((workout) => [workout.id, workout]))
+  const workoutNameMap = Object.fromEntries(importedWorkouts.map((workout) => [workout.id, workout.name]))
+  const importedPlan: WorkoutPlan = {
+    ...sharedPlan,
+    id: importedPlanId,
+    name: sharedPlan.name,
+    type: "custom",
+    createdBy: userId,
+    shareCode: await generateUniquePlanShareCode(),
+    sharedFromPlanId: sharedPlan.id,
+    sharedWorkouts: importedWorkouts,
+    schedule: sharedPlan.schedule.map((day) => ({
+      ...day,
+      workoutId: day.workoutId ? workoutIdMap.get(day.workoutId) ?? null : null,
+    })),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  }
+
+  await Promise.all(importedWorkouts.map((workout) => saveWorkout(workout)))
+  await activatePlan(userId, importedPlan, workoutNameMap, workoutMap)
+  return importedPlan
 }
 
 export async function updatePlanRestDays(
