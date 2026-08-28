@@ -75,10 +75,11 @@ export async function updatePlanRestDays(
   workoutNameMap?: Record<string, string>,
   durationDays = plan.durationDays ?? 63,
   startDate = addDays(getAppDate(), 1),
-  protectedDayOfWeek = getAppDate().getDay()
+  protectedDayOfWeek = getAppDate().getDay(),
+  workoutMap?: Record<string, Workout>
 ): Promise<void> {
   const normalizedRestDays = normalizeRestDays(restDays, getRestDayCount(plan), protectedDayOfWeek)
-  const scheduleEntries = buildPlanScheduleEntries(plan, workoutNameMap, normalizedRestDays, protectedDayOfWeek)
+  const scheduleEntries = buildPlanScheduleEntries(plan, workoutNameMap, normalizedRestDays, protectedDayOfWeek, workoutMap)
   const startDateString = format(startDate, "yyyy-MM-dd")
 
   await updateUserDocument(userId, {
@@ -108,6 +109,7 @@ export interface PlanScheduleEntry {
   isRest: boolean
   planId: string
   planName: string
+  workout?: Workout
 }
 
 function getRestDayCount(plan: WorkoutPlan) {
@@ -138,7 +140,8 @@ export function buildPlanScheduleEntries(
   plan: WorkoutPlan,
   workoutNameMap?: Record<string, string>,
   restDays?: number[],
-  protectedDayOfWeek = getAppDate().getDay()
+  protectedDayOfWeek = getAppDate().getDay(),
+  workoutMap?: Record<string, Workout>
 ): PlanScheduleEntry[] {
   const normalizedRestDays = normalizeRestDays(
     restDays ?? getAutoRestDays(plan, protectedDayOfWeek),
@@ -164,6 +167,7 @@ export function buildPlanScheduleEntries(
       isRest,
       planId: plan.id,
       planName: plan.name,
+      workout: workoutId ? workoutMap?.[workoutId] : undefined,
     }
   })
 }
@@ -179,7 +183,8 @@ export function buildPlanScheduleEntries(
 export async function activatePlan(
   userId: string,
   plan: WorkoutPlan,
-  workoutNameMap?: Record<string, string>
+  workoutNameMap?: Record<string, string>,
+  workoutMap?: Record<string, Workout>
 ): Promise<void> {
   await savePlan(plan)
   const startedAt = getAppDate()
@@ -197,7 +202,7 @@ export async function activatePlan(
 
   console.log("[activatePlan] activating plan:", plan.id, plan.name, "for userId:", userId)
 
-  const scheduleEntries = buildPlanScheduleEntries(plan, workoutNameMap, restDays, startedAt.getDay())
+  const scheduleEntries = buildPlanScheduleEntries(plan, workoutNameMap, restDays, startedAt.getDay(), workoutMap)
 
   console.log("[activatePlan] schedule entries:", scheduleEntries)
 

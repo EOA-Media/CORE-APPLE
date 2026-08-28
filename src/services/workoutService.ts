@@ -119,6 +119,7 @@ export async function generateScheduledWorkouts(
     isRest: boolean
     planId?: string
     planName?: string
+    workout?: Workout
   }[],
   durationDays = 63,
   startDate = getAppDate()
@@ -151,7 +152,7 @@ export async function generateScheduledWorkouts(
 
     // Enrich workout days with exercise data for Home/Focus rendering
     if (!entry.isRest && entry.workoutId) {
-      const workout = await resolveWorkoutById(entry.workoutId)
+      const workout = entry.workout ?? await resolveWorkoutById(entry.workoutId)
       if (workout) {
         scheduled.muscleGroups = workout.muscleGroups
         scheduled.estimatedMinutes = workout.estimatedMinutes

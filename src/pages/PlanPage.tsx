@@ -4,7 +4,7 @@ import { CalendarDays, Check, X, Moon, Dumbbell, Loader2, ChevronLeft, ChevronRi
 import { cn } from "@/lib/utils"
 import { allWorkouts } from "@/data/mock"
 import { formatElapsedTime } from "@/data/helpers"
-import type { ScheduledWorkout } from "@/data/models"
+import type { ScheduledExercise, ScheduledWorkout, Workout } from "@/data/models"
 import {
   Dialog,
   DialogContent,
@@ -13,9 +13,9 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { useAuth } from "@/contexts/AuthContext"
-import { getScheduledWorkouts } from "@/services/workoutService"
+import { generateScheduledWorkouts, getScheduledWorkouts } from "@/services/workoutService"
 import { calculateConsistencyFromSchedule, markMissedWorkouts, syncUserStatsFromSchedule, syncUserStreakFromSchedule } from "@/services/workoutService"
-import { activatePlan, buildPlanScheduleEntries, getAutoRestDays, getPlan, getWorkoutsForPlan, updatePlanRestDays } from "@/services/planService"
+import { activatePlan, buildPlanScheduleEntries, getAutoRestDays, getCustomPlansForUser, getPlan, getWorkoutsForPlan, updatePlanRestDays } from "@/services/planService"
 import { DEFAULT_CORE_PLAN_ID, getPlanById, buildWorkoutNameMap, ALL_CORE_PLANS, getWorkoutById } from "@/data/planSeedData"
 import { format, startOfMonth, endOfMonth, startOfWeek, endOfWeek, getDaysInMonth, getDay, addDays, addMonths, subMonths, isBefore, isAfter, isSameMonth } from "date-fns"
 import { getAppDate, getTodayString } from "@/lib/appDate"
@@ -121,6 +121,22 @@ function withPlanTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   })
 }
 
+function workoutToScheduledExercises(workout: Workout): ScheduledExercise[] {
+  return workout.exercises.map((exercise) => ({
+    exerciseId: exercise.id,
+    name: exercise.name,
+    category: exercise.category,
+    equipment: exercise.equipment,
+    sets: exercise.sets,
+    repsMin: exercise.repsMin,
+    repsMax: exercise.repsMax,
+    restSeconds: exercise.restSeconds,
+    targetWeight: exercise.defaultWeight,
+    targetUnit: exercise.targetUnit,
+    timedSeconds: exercise.timedSeconds,
+  }))
+}
+
 export function PlanPage() {
   const navigate = useNavigate()
   const { firebaseUser, isGuest, userDoc, refreshUserDoc } = useAuth()
@@ -137,7 +153,8 @@ export function PlanPage() {
   const [loadingData, setLoadingData] = useState(false)
   const [selectedMonthDate, setSelectedMonthDate] = useState(() => startOfMonth(getAppDate()))
   const [remotePlan, setRemotePlan] = useState<WorkoutPlan | null>(null)
-  const [savedCustomPlans] = useState<WorkoutPlan[]>([])
+  const [savedCustomPlans, setSavedCustomPlans] = useState<WorkoutPlan[]>([])
+  const [customWorkoutMap, setCustomWorkoutMap] = useState<Record<string, Workout>>({})
   const [scheduledPlanBounds, setScheduledPlanBounds] = useState<{ start: string; end: string } | null>(null)
   const [planLoadError, setPlanLoadError] = useState("")
 
@@ -175,11 +192,13 @@ export function PlanPage() {
       : getAutoRestDays(currentPlan, protectedRestDay)
   ), [currentPlan, protectedRestDay, userDoc?.preferredRestDays])
   const currentWorkoutNameMap = useMemo(() => (
-    currentPlan.type === "core" ? buildWorkoutNameMap(currentPlan) : undefined
-  ), [currentPlan])
+    currentPlan.type === "custom"
+      ? Object.fromEntries(Object.values(customWorkoutMap).map((workout) => [workout.id, workout.name]))
+      : buildWorkoutNameMap(currentPlan)
+  ), [currentPlan, customWorkoutMap])
   const currentScheduleEntries = useMemo(() => (
-    buildPlanScheduleEntries(currentPlan, currentWorkoutNameMap, currentRestDays, protectedRestDay)
-  ), [currentPlan, currentRestDays, currentWorkoutNameMap, protectedRestDay])
+    buildPlanScheduleEntries(currentPlan, currentWorkoutNameMap, currentRestDays, protectedRestDay, customWorkoutMap)
+  ), [currentPlan, currentRestDays, currentWorkoutNameMap, protectedRestDay, customWorkoutMap])
   const elapsedPlanDays = planStartDate
     ? Math.max(0, Math.min(planDurationDays, daysBetween(planStartDate, today) + 1))
     : 0
@@ -216,6 +235,51 @@ export function PlanPage() {
   useEffect(() => {
     if (showRestDays) setSelectedRestDays(currentRestDays)
   }, [showRestDays, currentRestDays])
+
+  useEffect(() => {
+    if (isGuest || !firebaseUser) {
+      setSavedCustomPlans([])
+      return
+    }
+
+    let cancelled = false
+    withPlanTimeout(getCustomPlansForUser(firebaseUser.uid), "Saved custom plans load")
+      .then((plans) => {
+        if (!cancelled) setSavedCustomPlans(plans)
+      })
+      .catch((err) => {
+        console.error("[PlanPage] failed to load saved custom plans:", err)
+        if (!cancelled) {
+          setSavedCustomPlans([])
+          setPlanLoadError(getPlanPageErrorMessage(err, "firestore/custom-plans-load-failed", "Saved custom plans load failed"))
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [firebaseUser, isGuest])
+
+  useEffect(() => {
+    if (isGuest || !firebaseUser || currentPlan.type !== "custom") {
+      setCustomWorkoutMap({})
+      return
+    }
+
+    let cancelled = false
+    withPlanTimeout(getWorkoutsForPlan(currentPlan.id), "Custom plan workouts load")
+      .then((workouts) => {
+        if (!cancelled) setCustomWorkoutMap(Object.fromEntries(workouts.map((workout) => [workout.id, workout])))
+      })
+      .catch((err) => {
+        console.error("[PlanPage] failed to load custom plan workouts:", err)
+        if (!cancelled) {
+          setCustomWorkoutMap({})
+          setPlanLoadError(getPlanPageErrorMessage(err, "firestore/custom-workouts-load-failed", "Custom plan workouts load failed"))
+        }
+      })
+
+    return () => { cancelled = true }
+  }, [firebaseUser, isGuest, currentPlan.id, currentPlan.type])
+
   useEffect(() => {
     const planId = userDoc?.currentPlanId
     if (!planId || getPlanById(planId)) {
@@ -278,33 +342,51 @@ export function PlanPage() {
     return () => { cancelled = true }
   }, [firebaseUser, isGuest, currentPlan.id, userDoc?.currentPlanStartedAt, userDoc?.currentPlanEndsAt])
 
-  // Build a fallback weekly schedule from plan + today
+  const buildFallbackScheduledDay = (date: Date): ScheduledWorkout => {
+    const dateStr = format(date, "yyyy-MM-dd")
+    const dow = date.getDay()
+    if ((planStartDate && dateStr < planStartDate) || (planEndDate && dateStr > planEndDate)) {
+      return { date: dateStr, workoutId: null, workoutName: "Program Complete", planId: currentPlan.id, planName: currentPlan.name, status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
+    }
+    const planDay = currentScheduleEntries.find((s) => s.dayOfWeek === dow)
+    if (!planDay) return { date: dateStr, workoutId: null, workoutName: "Rest Day", planId: currentPlan.id, planName: currentPlan.name, status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
+    if (planDay.isRest) return { date: dateStr, workoutId: null, workoutName: "Rest Day", planId: currentPlan.id, planName: currentPlan.name, status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
+    const wk = planDay.workoutId
+      ? customWorkoutMap[planDay.workoutId] ?? getWorkoutById(planDay.workoutId) ?? allWorkouts.find((workout) => workout.id === planDay.workoutId)
+      : null
+    const isPast = dateStr < today
+    return {
+      date: dateStr,
+      workoutId: planDay.workoutId,
+      workoutName: wk?.name ?? planDay.workoutName,
+      planId: currentPlan.id,
+      planName: currentPlan.name,
+      muscleGroups: wk?.muscleGroups,
+      estimatedMinutes: wk?.estimatedMinutes,
+      scheduledExercises: wk ? workoutToScheduledExercises(wk) : undefined,
+      status: isPast ? "missed" as const : "scheduled" as const,
+      completionPercent: 0,
+      disciplinePointsEarned: 0,
+      elapsedSeconds: 0,
+    }
+  }
+
+  // Build fallback schedules from plan data so custom plans still show useful
+  // future workouts if Firestore scheduled docs are missing or still loading.
   const fallbackWeekly = useMemo<ScheduledWorkout[]>(() => {
     const weekStart = startOfWeek(now, { weekStartsOn: 0 })
     return Array.from({ length: 7 }, (_, i) => {
       const date = new Date(weekStart)
       date.setDate(weekStart.getDate() + i)
-      const dateStr = format(date, "yyyy-MM-dd")
-      const dow = date.getDay()
-      if ((planStartDate && dateStr < planStartDate) || (planEndDate && dateStr > planEndDate)) {
-        return { date: dateStr, workoutId: null, workoutName: "Program Complete", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
-      }
-      const planDay = currentScheduleEntries.find((s) => s.dayOfWeek === dow)
-      if (!planDay) return { date: dateStr, workoutId: null, workoutName: "Rest Day", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
-      if (planDay.isRest) return { date: dateStr, workoutId: null, workoutName: "Rest Day", status: "rest" as const, completionPercent: 0, disciplinePointsEarned: 0, elapsedSeconds: 0 }
-      const wk = getWorkoutById(planDay.workoutId ?? "")
-      const isPast = dateStr < today
-      return {
-        date: dateStr,
-        workoutId: planDay.workoutId,
-        workoutName: wk?.name ?? planDay.workoutName,
-        status: isPast ? "missed" as const : "scheduled" as const,
-        completionPercent: 0,
-        disciplinePointsEarned: 0,
-        elapsedSeconds: 0,
-      }
+      return buildFallbackScheduledDay(date)
     })
-  }, [currentScheduleEntries, today, planStartDate, planEndDate])
+  }, [currentScheduleEntries, today, planStartDate, planEndDate, customWorkoutMap])
+
+  const fallbackMonthly = useMemo<ScheduledWorkout[]>(() => (
+    Array.from({ length: daysInMonth }, (_, i) => (
+      buildFallbackScheduledDay(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1))
+    ))
+  ), [currentScheduleEntries, today, planStartDate, planEndDate, customWorkoutMap, daysInMonth, selectedMonth])
 
   useEffect(() => {
     if (isBefore(selectedMonth, accountCreatedMonth)) {
@@ -338,13 +420,42 @@ export function PlanPage() {
         const monthStart = format(selectedMonth, "yyyy-MM-dd")
         const monthEnd = format(endOfMonth(selectedMonth), "yyyy-MM-dd")
 
-        const [weekly, monthly] = await withPlanTimeout(
+        let [weekly, monthly] = await withPlanTimeout(
           Promise.all([
             getScheduledWorkouts(uid, weekStart, weekEnd),
             getScheduledWorkouts(uid, monthStart, monthEnd),
           ]),
           "Workout calendar load"
         )
+
+        const hasCurrentPlanCalendarDocs = [...weekly, ...monthly].some((day) => day.planId === currentPlan.id)
+        if (
+          currentPlan.type === "custom" &&
+          currentPlan.id === userDoc?.currentPlanId &&
+          Object.keys(customWorkoutMap).length > 0 &&
+          !hasCurrentPlanCalendarDocs
+        ) {
+          const remainingScheduleDays = planEndDate
+            ? Math.max(1, daysBetween(today, planEndDate) + 1)
+            : Math.max(1, planDurationDays - elapsedPlanDays)
+          console.log("[PlanPage] no custom plan calendar docs found — regenerating schedule:", {
+            uid,
+            planId: currentPlan.id,
+            remainingScheduleDays,
+          })
+          await withPlanTimeout(
+            generateScheduledWorkouts(uid, currentScheduleEntries, remainingScheduleDays, getAppDate()),
+            "Custom plan calendar repair"
+          )
+          ;[weekly, monthly] = await withPlanTimeout(
+            Promise.all([
+              getScheduledWorkouts(uid, weekStart, weekEnd),
+              getScheduledWorkouts(uid, monthStart, monthEnd),
+            ]),
+            "Workout calendar reload"
+          )
+        }
+
         if (!cancelled) {
           const normalizedWeekly = normalizePastScheduled(weekly, today).filter(isInsideActiveProgram)
           const normalizedMonthly = normalizePastScheduled(monthly, today).filter(isInsideActiveProgram)
@@ -365,13 +476,31 @@ export function PlanPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [firebaseUser, isGuest, userDoc?.currentPlanId, today, selectedMonthDate])
+  }, [
+    firebaseUser,
+    isGuest,
+    userDoc?.currentPlanId,
+    today,
+    selectedMonthDate,
+    currentPlan.id,
+    currentPlan.type,
+    planEndDate,
+    planDurationDays,
+    elapsedPlanDays,
+    currentScheduleEntries,
+    customWorkoutMap,
+  ])
 
   const displayWeekly = useMemo(() => {
     if (!liveWeekly) return fallbackWeekly
     const liveByDate = new Map(liveWeekly.map((day) => [day.date, day]))
     return fallbackWeekly.map((day) => liveByDate.get(day.date) ?? day)
   }, [fallbackWeekly, liveWeekly])
+  const displayMonthly = useMemo(() => {
+    if (!liveMonthly) return fallbackMonthly
+    const liveByDate = new Map(liveMonthly.map((day) => [day.date, day]))
+    return fallbackMonthly.map((day) => liveByDate.get(day.date) ?? day)
+  }, [fallbackMonthly, liveMonthly])
   const monthStats = useMemo(() => computeMonthStats(liveMonthly ?? []), [liveMonthly])
 
   async function handleSelectPlan(planId: string) {
@@ -397,8 +526,11 @@ export function PlanPage() {
       const workoutNameMap = plan.type === "custom"
         ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout.name]))
         : buildWorkoutNameMap(plan)
+      const workoutMap = plan.type === "custom"
+        ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout]))
+        : undefined
       console.log("[PlanPage] switching to plan:", plan.id, plan.name)
-      await withPlanTimeout(activatePlan(firebaseUser.uid, plan, workoutNameMap), "Plan activation")
+      await withPlanTimeout(activatePlan(firebaseUser.uid, plan, workoutNameMap, workoutMap), "Plan activation")
       // Refresh user doc so currentPlanId propagates to all components
       await refreshUserDoc(firebaseUser)
       console.log("[PlanPage] plan activated and userDoc refreshed")
@@ -450,6 +582,9 @@ export function PlanPage() {
       const workoutNameMap = currentPlan.type === "custom"
         ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout.name]))
         : buildWorkoutNameMap(currentPlan)
+      const workoutMap = currentPlan.type === "custom"
+        ? Object.fromEntries(savedWorkouts.map((workout) => [workout.id, workout]))
+        : undefined
       const restScheduleStart = addDays(now, 1)
       const restScheduleStartString = format(restScheduleStart, "yyyy-MM-dd")
       const remainingScheduleDays = planEndDate
@@ -464,7 +599,8 @@ export function PlanPage() {
           workoutNameMap,
           remainingScheduleDays,
           restScheduleStart,
-          protectedRestDay
+          protectedRestDay,
+          workoutMap
         ),
         "Rest day update"
       )
@@ -661,7 +797,7 @@ export function PlanPage() {
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const dayNum = i + 1
                 const dateStr = format(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), dayNum), "yyyy-MM-dd")
-                const entry = liveMonthly?.find((d) => d.date === dateStr)
+                const entry = displayMonthly.find((d) => d.date === dateStr)
                 const isToday = dateStr === today
 
                 return (

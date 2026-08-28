@@ -865,7 +865,8 @@ export function CustomPlanBuilderPage() {
       }
 
       const workoutNameMap = Object.fromEntries(workouts.map((workout) => [workout.id, workout.name]))
-      await activatePlan(firebaseUser.uid, plan, workoutNameMap)
+      const workoutMap = Object.fromEntries(workouts.map((workout) => [workout.id, workout]))
+      await activatePlan(firebaseUser.uid, plan, workoutNameMap, workoutMap)
       await refreshUserDoc()
       navigate("/plan")
     } catch (err) {
