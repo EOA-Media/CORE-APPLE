@@ -1,4 +1,5 @@
 .env.local
+.firebase/
 .firebase-cli-config/
 .npm-cache/
 node_modules/
