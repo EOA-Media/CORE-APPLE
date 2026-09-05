@@ -1,0 +1,5 @@
+.env.local
+.firebase-cli-config/
+.npm-cache/
+node_modules/
+vite-preview*.log
