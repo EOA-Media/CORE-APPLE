@@ -29,6 +29,7 @@
 		}
 	},
 	"packageClassList": [
+		"AdMobPlugin",
 		"SignInWithApple",
 		"PushNotificationsPlugin",
 		"SocialLoginPlugin"

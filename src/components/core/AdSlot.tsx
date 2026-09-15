@@ -1,6 +1,11 @@
 import { Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getAdLabel, isAdEnabled, type AdPlacement } from "@/services/adService"
+import {
+  getAdLabel,
+  isAdEnabled,
+  isNativeAdPlatform,
+  type AdPlacement,
+} from "@/services/adService"
 
 interface AdSlotProps {
   placement: AdPlacement
@@ -8,7 +13,7 @@ interface AdSlotProps {
 }
 
 export function AdSlot({ placement, className }: AdSlotProps) {
-  if (!isAdEnabled()) return null
+  if (!isAdEnabled() || isNativeAdPlatform()) return null
 
   return (
     <div

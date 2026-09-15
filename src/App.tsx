@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom"
-import { Component, type ErrorInfo, type ReactNode } from "react"
+import { Component, useEffect, type ErrorInfo, type ReactNode } from "react"
 import { AppHeader } from "@/components/core/AppHeader"
 import { BottomNav } from "@/components/core/BottomNav"
 import { HomePage } from "@/pages/HomePage"
@@ -13,6 +13,7 @@ import { CustomPlanBuilderPage } from "@/pages/CustomPlanBuilderPage"
 import { AuthProvider, useAuth } from "@/contexts/AuthContext"
 import { Loader2 } from "lucide-react"
 import { CoreLogo } from "@/components/core/CoreLogo"
+import { setNativeBannerVisible } from "@/services/adService"
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -104,6 +105,17 @@ function AppLayout() {
   const location = useLocation()
   const { isGuest } = useAuth()
   const isFocusMode = location.pathname === "/focus"
+  const shouldShowBanner = location.pathname === "/" || location.pathname === "/social"
+
+  useEffect(() => {
+    void setNativeBannerVisible(shouldShowBanner)
+  }, [shouldShowBanner])
+
+  useEffect(() => {
+    return () => {
+      void setNativeBannerVisible(false)
+    }
+  }, [])
 
   if (isFocusMode) {
     return <FocusModePage />
@@ -113,7 +125,11 @@ function AppLayout() {
     <div className="app-bg relative mx-auto flex h-svh w-full max-w-[430px] flex-col overflow-hidden">
       {isGuest && <GuestBanner />}
       <AppHeader />
-      <main key={location.pathname} className="motion-fade-rise flex-1 overflow-x-hidden overflow-y-auto pb-24">
+      <main
+        key={location.pathname}
+        className="motion-fade-rise flex-1 overflow-x-hidden overflow-y-auto"
+        style={{ paddingBottom: "calc(6rem + var(--admob-banner-height, 0px))" }}
+      >
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/plan" element={<PlanPage />} />
