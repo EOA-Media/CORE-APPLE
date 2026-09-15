@@ -16,7 +16,7 @@ import { useAuth } from "@/contexts/AuthContext"
 import { saveWorkoutSession, updateScheduledWorkoutStatus, updateExerciseWeight, markMissedWorkouts, getScheduledWorkout, syncUserStreakFromSchedule, getAllExerciseData } from "@/services/workoutService"
 import { updateUserStats } from "@/services/userService"
 import { checkAndUnlockAchievements } from "@/services/achievementService"
-import { showPostWorkoutVideoAd } from "@/services/adService"
+import { preparePostWorkoutInterstitial, showPostWorkoutInterstitialAd } from "@/services/adService"
 import { useWorkoutSession } from "@/hooks/useWorkoutSession"
 import { DEFAULT_CORE_PLAN_ID, getPlanById, getWorkoutById } from "@/data/planSeedData"
 import type { Workout } from "@/data/models"
@@ -97,6 +97,10 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
   const completeSetRef = useRef(session.completeSet)
   const startRestTimerRef = useRef<(exerciseIndex: number) => void>(() => undefined)
   const saveStartedRef = useRef(false)
+
+  useEffect(() => {
+    void preparePostWorkoutInterstitial()
+  }, [])
 
   useEffect(() => {
     workoutExercisesRef.current = workout.exercises
@@ -373,10 +377,12 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
     const saved = await persistCompletion()
     if (!saved) return
 
-    setCompletionStep("ad")
-    await showPostWorkoutVideoAd()
+    if ((completionData?.completionPercent ?? 0) >= 100) {
+      setCompletionStep("ad")
+      await showPostWorkoutInterstitialAd()
+    }
     setCompletionStep("streak")
-  }, [persistCompletion])
+  }, [completionData?.completionPercent, persistCompletion])
 
   const handleSaveWeight = useCallback(async () => {
     if (weightEditIndex === null) return
@@ -456,7 +462,7 @@ function WorkoutSessionPage({ workout }: { workout: Workout }) {
                 <p className="mt-6 text-[10px] font-bold uppercase tracking-[0.28em] text-[var(--gold)]">Video Ad</p>
                 <h2 className="mt-3 text-2xl font-black text-foreground">Sponsored Break</h2>
                 <p className="mt-2 max-w-[240px] text-sm leading-relaxed text-muted-foreground">
-                  Test ad placeholder. Real AdMob video connects in the native iOS build.
+                  The interstitial appears here in the native iOS build.
                 </p>
                 <Loader2 className="mt-8 size-5 animate-spin text-muted-foreground" strokeWidth={1.5} />
               </div>
